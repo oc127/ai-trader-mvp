@@ -1,0 +1,15 @@
+{
+  "id": "hk_placeholder",
+  "name": "Hong Kong Policy Placeholder",
+  "description": "Placeholder. Replace with HK-specific constraints before any brokerage integration or live trading.",
+  "jurisdiction": "HK",
+  "mode": "research_only",
+  "require_human_confirmation_for_live_trade": true,
+  "allow_live_trading": false,
+  "allow_broker_api_connection": false,
+  "notes": [
+    "Define HK-specific compliance requirements before enabling live trading."
+  ]
+}
+
+

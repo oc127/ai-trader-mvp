@@ -1,0 +1,15 @@
+{
+  "id": "cn_placeholder",
+  "name": "China Mainland Policy Placeholder",
+  "description": "Placeholder. Replace with PRC-specific constraints before any brokerage integration or live trading.",
+  "jurisdiction": "CN",
+  "mode": "research_only",
+  "require_human_confirmation_for_live_trade": true,
+  "allow_live_trading": false,
+  "allow_broker_api_connection": false,
+  "notes": [
+    "Define CN-specific compliance requirements before enabling live trading."
+  ]
+}
+
+

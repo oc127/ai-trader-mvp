@@ -1,0 +1,25 @@
+.DS_Store
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local data / outputs
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.jsonl
+reports/
+
+# Cursor / local IDE config
+.cursor/mcp.json
+
+# Allow committing Cursor Rules (recommended)
+!.cursor/rules/
+!.cursor/rules/**
+
+

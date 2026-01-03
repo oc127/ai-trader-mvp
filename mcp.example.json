@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "fs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/ABS/PATH/TO/ROOT"]
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@cyanheads/git-mcp-server@latest"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "MCP_LOG_LEVEL": "info",
+        "GIT_BASE_DIR": "/ABS/PATH/TO/ROOT"
+      }
+    },
+    "pw": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--image-responses", "omit"],
+      "env": {
+        "DEBUG": "pw:*"
+      }
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "-p", "@thlee/fetch-mcp@0.0.5", "mcp-server-fetch"]
+    },
+    "db": {
+      "command": "node",
+      "args": ["scripts/sqlite-mcp.mjs", "--db", "/ABS/PATH/TO/biubiu.db"]
+    },
+    "code": {
+      "command": "npx",
+      "args": ["-y", "mcp-server-code-runner@latest"]
+    }
+  }
+}
+
+
