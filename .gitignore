@@ -10,13 +10,19 @@ __pycache__/
 
 # Local data / outputs
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.sqlite
 data/*.sqlite3
 data/*.jsonl
 reports/
+logs/
 
 # Cursor / local IDE config
 .cursor/mcp.json
+
+# Local npm config (user-specific)
+npmrc.mcp
 
 # Allow committing Cursor Rules (recommended)
 !.cursor/rules/
