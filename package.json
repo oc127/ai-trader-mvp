@@ -10,6 +10,8 @@
     "claude": "node scripts/claude.mjs",
     "mcp": "node scripts/mcp-config.mjs",
     "report": "PYTHONPATH=./py python3 scripts/daily_report.py",
+    "trade": "PYTHONPATH=./py python3 scripts/us_trader.py",
+    "trade:dry": "PYTHONPATH=./py python3 scripts/us_trader.py --dry-run",
     "web": "node scripts/web.mjs"
   }
 }

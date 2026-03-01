@@ -5,4 +5,14 @@
 #
 # Note: akshare pulls pandas/numpy transitively.
 
-
+# --- US Stock Trading (Alpaca) ---
+# alpaca-py
+#
+# Install for US stock trading:
+#   pip install alpaca-py
+#
+# Environment variables required:
+#   ALPACA_API_KEY=<your-key>
+#   ALPACA_SECRET_KEY=<your-secret>
+#
+# Get free API keys at: https://app.alpaca.markets/signup

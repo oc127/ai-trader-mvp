@@ -1,0 +1,17 @@
+{
+  "id": "us_paper",
+  "name": "US Paper Trading",
+  "description": "Paper trading via Alpaca. Broker API enabled, live trading disabled. Safe for testing strategies with simulated money.",
+  "jurisdiction": "US",
+  "mode": "paper_trading",
+  "require_human_confirmation_for_live_trade": true,
+  "allow_live_trading": false,
+  "allow_broker_api_connection": true,
+  "allow_external_network_fetch": true,
+  "allow_browser_automation": false,
+  "notes": [
+    "Uses Alpaca paper trading endpoint (paper-api.alpaca.markets).",
+    "All orders are simulated — no real money at risk.",
+    "Set ALPACA_API_KEY and ALPACA_SECRET_KEY for paper account."
+  ]
+}

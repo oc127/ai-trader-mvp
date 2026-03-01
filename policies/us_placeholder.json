@@ -1,15 +1,19 @@
 {
-  "id": "us_placeholder",
-  "name": "US Policy Placeholder",
-  "description": "Placeholder. Replace with jurisdiction-specific constraints before any brokerage integration or live trading.",
+  "id": "us_live",
+  "name": "US Live Trading",
+  "description": "Live trading via Alpaca. USE WITH CAUTION — real money at risk. Requires human confirmation for every trade by default.",
   "jurisdiction": "US",
-  "mode": "research_only",
+  "mode": "live_trading",
   "require_human_confirmation_for_live_trade": true,
-  "allow_live_trading": false,
-  "allow_broker_api_connection": false,
+  "allow_live_trading": true,
+  "allow_broker_api_connection": true,
+  "allow_external_network_fetch": true,
+  "allow_browser_automation": false,
   "notes": [
-    "Define US-specific compliance requirements before enabling live trading."
+    "SEC/FINRA regulated — Pattern Day Trader rule applies ($25k minimum for margin accounts with 4+ day trades in 5 days).",
+    "Cash accounts bypass PDT but have T+2 settlement.",
+    "Risk limits enforced by RiskManager: position sizing, stop-loss, daily trade caps.",
+    "Set ALPACA_API_KEY and ALPACA_SECRET_KEY for live account.",
+    "Set ALPACA_PAPER=false to confirm live mode."
   ]
 }
-
-

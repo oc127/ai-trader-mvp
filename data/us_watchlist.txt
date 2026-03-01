@@ -1,0 +1,57 @@
+# US Stock Universe — Momentum & Swing Trading
+# ~40 liquid stocks across sectors, suitable for $10k account
+
+# Large Cap Tech
+AAPL
+MSFT
+GOOGL
+AMZN
+META
+NVDA
+
+# Growth Tech
+TSLA
+AMD
+NFLX
+CRM
+PYPL
+
+# Semiconductors
+AVGO
+QCOM
+MU
+INTC
+
+# Cloud / SaaS
+SNOW
+PLTR
+NET
+DDOG
+CRWD
+
+# Consumer
+DIS
+NKE
+SBUX
+MCD
+
+# Finance
+JPM
+GS
+V
+MA
+
+# Energy
+XOM
+CVX
+
+# Healthcare
+UNH
+JNJ
+PFE
+ABBV
+
+# Industrial
+CAT
+BA
+DE
