@@ -1,0 +1,8 @@
+exchange:
+  use_testnet: false
+
+risk:
+  max_position_size_usd: 10000
+
+logging:
+  level: INFO

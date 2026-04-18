@@ -1,0 +1,8 @@
+exchange:
+  use_testnet: true
+
+risk:
+  max_position_size_usd: 1000
+
+logging:
+  level: DEBUG
