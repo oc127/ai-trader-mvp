@@ -1,8 +1,0 @@
-# This MVP runs in "sample" mode with **zero Python deps**.
-#
-# Optional (free) real A-share data source:
-# akshare
-#
-# Note: akshare pulls pandas/numpy transitively.
-
-
