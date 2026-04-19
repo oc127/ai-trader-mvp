@@ -19,13 +19,14 @@ class AlertManager:
             self._telegram_enabled = False
 
     def send(self, message: str, level: str = "info") -> None:
+        prefixed = f"HL | {message}"
         log.log(
             {"info": 20, "warning": 30, "error": 40, "critical": 50}.get(level, 20),
-            f"Alert: {message}",
+            f"Alert: {prefixed}",
         )
 
         if self._telegram_enabled:
-            self._send_telegram(message)
+            self._send_telegram(prefixed)
 
     def _send_telegram(self, message: str) -> None:
         try:

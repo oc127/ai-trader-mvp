@@ -66,7 +66,7 @@ class PnLTracker:
         self._last_daily_summary = today
 
         lines = [
-            f"📊 *Daily Summary — {today}*",
+            f"*HL | Daily Summary — {today}*",
             "",
             f"💰 Equity: ${account.equity:,.2f}",
             f"📈 Total Return: ${total_return:+,.2f} ({return_pct:+.2f}%)",
