@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.backtest.engine import BacktestConfig, run_backtest
 from src.config import load_config
 from src.data.store import DataStore
+from src.hl_client.rest import HLRestClient
 from src.logger import setup_logging
 
 
@@ -26,17 +27,28 @@ def main() -> None:
     cfg = load_config(args.env)
     setup_logging(cfg)
 
+    client = HLRestClient(cfg)
+    mids = client.get_all_mids()
+    print(f"Current prices: { {c: mids.get(c, 'N/A') for c in args.coins} }")
+
     store = DataStore(cfg.get("data", {}).get("db_path", "data/trader.db"))
 
     funding_data = {}
     price_data = {}
+    above_threshold = 0
     for coin in args.coins:
         rates = store.get_funding_history(coin)
         if rates:
             funding_data[coin] = rates
+            price = mids.get(coin, 0)
             price_data[coin] = {}
             for r in rates:
-                price_data[coin][r.timestamp.isoformat()] = 0
+                price_data[coin][r.timestamp.isoformat()] = price
+                if r.rate >= args.entry_threshold:
+                    above_threshold += 1
+            print(f"  {coin}: {len(rates)} rates, price=${price:.2f}")
+
+    print(f"  Rates above entry threshold ({args.entry_threshold}): {above_threshold}")
 
     if not funding_data:
         print("No funding data found. Run fetch_historical.py first.")
