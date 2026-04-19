@@ -38,6 +38,7 @@ class Orchestrator:
 
         if paper:
             self._executor = PaperExecutor(self._client, self._store)
+            self._strategy.set_paper_equity(self._executor.balance)
             log.info("Running in PAPER mode")
         else:
             self._executor = LiveExecutor(self._client, self._store)
@@ -106,6 +107,9 @@ class Orchestrator:
 
             for r in results:
                 self._strategy.on_fill(r.coin, r.side.value, r.filled_size, r.price, r.is_spot)
+
+            if self._paper and isinstance(self._executor, PaperExecutor):
+                self._strategy.set_paper_equity(self._executor.get_equity())
 
         if now - self._last_pnl_log >= self._pnl_interval:
             self._pnl.snapshot()

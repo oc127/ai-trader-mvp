@@ -37,9 +37,13 @@ class FundingArbStrategy(Strategy):
 
         self._positions: dict[str, ArbPosition] = {}
         self._candidate_coins: list[str] = []
+        self._paper_equity: float | None = None
 
     def name(self) -> str:
         return "funding_arb"
+
+    def set_paper_equity(self, equity: float) -> None:
+        self._paper_equity = equity
 
     def set_candidate_coins(self, coins: list[str]) -> None:
         self._candidate_coins = coins
@@ -80,8 +84,11 @@ class FundingArbStrategy(Strategy):
             return []
 
         signals = []
-        account = self._client.get_account_state()
-        per_pair_capital = account.equity * self._per_pair_max_pct
+        if self._paper_equity is not None:
+            equity = self._paper_equity
+        else:
+            equity = self._client.get_account_state().equity
+        per_pair_capital = equity * self._per_pair_max_pct
 
         ranked = self._rank_candidates()
         slots = self._max_pairs - len(self._positions)
