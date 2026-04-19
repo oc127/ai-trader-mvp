@@ -69,10 +69,7 @@ class DataStore:
         ]
 
     def get_latest_funding_rate(self, coin: str) -> FundingRate | None:
-        sql = (
-            "SELECT coin, rate, premium, timestamp FROM funding_rates"
-            " WHERE coin = ? ORDER BY timestamp DESC LIMIT 1"
-        )
+        sql = "SELECT coin, rate, premium, timestamp FROM funding_rates WHERE coin = ? ORDER BY timestamp DESC LIMIT 1"
         with self._lock:
             row = self._conn.execute(sql, (coin,)).fetchone()
         if not row:
