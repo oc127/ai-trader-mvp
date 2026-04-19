@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.backtest.engine import BacktestConfig, run_backtest
 from src.config import load_config
