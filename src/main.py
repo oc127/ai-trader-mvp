@@ -95,9 +95,7 @@ class Orchestrator:
         for sig in signals:
             risk_check = self._risk.check_signal(sig, account)
             if not risk_check.passed:
-                log.warning(
-                    "Signal blocked by risk", extra={"coin": sig.coin, "reason": risk_check.reason}
-                )
+                log.warning("Signal blocked by risk", extra={"coin": sig.coin, "reason": risk_check.reason})
                 continue
 
             log.info(

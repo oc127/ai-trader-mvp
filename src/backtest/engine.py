@@ -137,7 +137,6 @@ def run_backtest(
         for pos in positions.values():
             price = price_data.get(pos.coin, {}).get(ts_key, pos.entry_price)
             equity += pos.size * (price - pos.entry_price)
-            equity -= pos.size * (price - pos.entry_price)
         equity_curve.append(equity)
 
     metrics = compute_metrics(equity_curve, total_funding, len(trades), holding_hours)

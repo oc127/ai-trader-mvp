@@ -66,17 +66,18 @@ class RiskManager:
 
         margin_check = self._check_margin(account)
         if not margin_check.passed:
-            if account.margin_utilization >= self._margin_halt:
-                self._halted = True
-                alerts.append(f"HALT: {margin_check.reason}")
-            else:
-                alerts.append(f"WARNING: {margin_check.reason}")
+            self._halted = True
+            alerts.append(f"HALT: {margin_check.reason}")
+        elif margin_check.reason:
+            alerts.append(f"WARNING: {margin_check.reason}")
 
         return alerts
 
-    def reset_halt(self) -> None:
+    def reset_halt(self, new_peak_equity: float = 0.0) -> None:
         self._halted = False
-        log.info("Risk halt manually reset")
+        if new_peak_equity > 0:
+            self._peak_equity = new_peak_equity
+        log.info("Risk halt manually reset", extra={"peak_equity": self._peak_equity})
 
     def _check_drawdown(self, account: AccountState) -> RiskCheck:
         if self._peak_equity == 0:
@@ -99,8 +100,9 @@ class RiskManager:
                 reason=f"Margin utilization {util:.2%} exceeds halt threshold {self._margin_halt:.2%}",
             )
         if util >= self._margin_warn:
+            log.warning("Margin utilization high", extra={"utilization": f"{util:.2%}"})
             return RiskCheck(
-                passed=False,
+                passed=True,
                 reason=f"Margin utilization {util:.2%} exceeds warning threshold {self._margin_warn:.2%}",
             )
         return RiskCheck(passed=True)

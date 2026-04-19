@@ -43,9 +43,7 @@ class HLRestClient:
             self._exchange = Exchange(wallet=wallet, base_url=self._base_url)
             if not self._address:
                 self._address = wallet.address
-            log.info(
-                "HL client initialized", extra={"testnet": use_testnet, "address": self._address}
-            )
+            log.info("HL client initialized", extra={"testnet": use_testnet, "address": self._address})
         else:
             log.warning("No HL_PRIVATE_KEY — read-only mode")
 
@@ -57,9 +55,7 @@ class HLRestClient:
         raw = self._info.all_mids()
         return {k: float(v) for k, v in raw.items()}
 
-    def get_funding_rates(
-        self, coin: str, start_time: int, end_time: int | None = None
-    ) -> list[FundingRate]:
+    def get_funding_rates(self, coin: str, start_time: int, end_time: int | None = None) -> list[FundingRate]:
         raw = self._info.funding_history(coin, start_time, end_time)
         rates = []
         for entry in raw:
@@ -115,7 +111,7 @@ class HLRestClient:
                 SpotBalance(
                     coin=b["coin"],
                     total=float(b["total"]),
-                    available=float(b.get("hold", b["total"])),
+                    available=float(b["total"]) - float(b.get("hold", 0)),
                 )
             )
         return balances

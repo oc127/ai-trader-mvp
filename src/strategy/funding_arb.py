@@ -62,9 +62,10 @@ class FundingArbStrategy(Strategy):
                 reason = f"funding rate {rate.rate:.6f} below exit threshold {self._exit_threshold}"
 
             mids = self._client.get_all_mids()
-            if coin in mids and pos.spot_entry > 0 and pos.perp_entry > 0:
-                mid = mids[coin]
-                basis = abs(mid - pos.perp_entry) / pos.perp_entry
+            perp_mid = mids.get(coin)
+            spot_mid = mids.get(f"@{coin}")
+            if perp_mid and spot_mid and spot_mid > 0:
+                basis = abs(perp_mid - spot_mid) / spot_mid
                 if basis > self._basis_exit_threshold:
                     reason = f"basis {basis:.4f} exceeds threshold {self._basis_exit_threshold}"
 
@@ -136,12 +137,8 @@ class FundingArbStrategy(Strategy):
 
     def _build_open_orders(self, coin: str, size: float, price: float) -> list[OrderRequest]:
         return [
-            OrderRequest(
-                coin=coin, side=Side.BUY, size=size, order_type=OrderType.MARKET, is_spot=True
-            ),
-            OrderRequest(
-                coin=coin, side=Side.SELL, size=size, order_type=OrderType.MARKET, is_spot=False
-            ),
+            OrderRequest(coin=coin, side=Side.BUY, size=size, order_type=OrderType.MARKET, is_spot=True),
+            OrderRequest(coin=coin, side=Side.SELL, size=size, order_type=OrderType.MARKET, is_spot=False),
         ]
 
     def _build_close_orders(self, pos: ArbPosition) -> list[OrderRequest]:
@@ -170,10 +167,34 @@ class FundingArbStrategy(Strategy):
             )
         return orders
 
-    def on_fill(self, coin: str, side: str, size: float, price: float) -> None:
+    def on_fill(self, coin: str, side: str, size: float, price: float, is_spot: bool = True) -> None:
         if coin not in self._positions:
             self._positions[coin] = ArbPosition(coin=coin)
-        log.info("Fill recorded", extra={"coin": coin, "side": side, "size": size, "price": price})
+
+        pos = self._positions[coin]
+        if is_spot:
+            if side == "buy":
+                if pos.spot_size == 0:
+                    pos.spot_entry = price
+                else:
+                    pos.spot_entry = (pos.spot_entry * pos.spot_size + price * size) / (pos.spot_size + size)
+                pos.spot_size += size
+            else:
+                pos.spot_size -= size
+        else:
+            if side == "sell":
+                if pos.perp_size == 0:
+                    pos.perp_entry = price
+                else:
+                    pos.perp_entry = (pos.perp_entry * abs(pos.perp_size) + price * size) / (abs(pos.perp_size) + size)
+                pos.perp_size -= size
+            else:
+                pos.perp_size += size
+
+        if abs(pos.spot_size) < 1e-8 and abs(pos.perp_size) < 1e-8:
+            del self._positions[coin]
+
+        log.info("Fill recorded", extra={"coin": coin, "side": side, "size": size, "price": price, "is_spot": is_spot})
 
     def get_positions(self) -> dict[str, ArbPosition]:
         return self._positions.copy()

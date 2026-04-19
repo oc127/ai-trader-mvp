@@ -32,8 +32,6 @@ class AlertManager:
             import httpx
 
             url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
-            httpx.post(
-                url, json={"chat_id": self._chat_id, "text": message, "parse_mode": "Markdown"}
-            )
+            httpx.post(url, json={"chat_id": self._chat_id, "text": message, "parse_mode": "Markdown"})
         except Exception:
             log.exception("Failed to send Telegram alert")

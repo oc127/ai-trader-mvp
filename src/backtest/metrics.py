@@ -44,11 +44,7 @@ def compute_metrics(
 
     returns = []
     for i in range(1, len(equity_curve)):
-        r = (
-            (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1]
-            if equity_curve[i - 1]
-            else 0
-        )
+        r = (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1] if equity_curve[i - 1] else 0
         returns.append(r)
 
     if returns:

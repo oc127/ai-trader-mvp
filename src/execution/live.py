@@ -58,9 +58,7 @@ class LiveExecutor(Executor):
                 )
 
                 if result.status == OrderStatus.REJECTED:
-                    log.error(
-                        "Order rejected", extra={"coin": result.coin, "order_id": result.order_id}
-                    )
+                    log.error("Order rejected", extra={"coin": result.coin, "order_id": result.order_id})
                     break
 
                 time.sleep(0.1)

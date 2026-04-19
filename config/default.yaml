@@ -18,7 +18,7 @@ risk:
   max_drawdown_pct: 0.05            # -5% NAV → pause all
   margin_utilization_warn: 0.70     # warn at 70% margin usage
   margin_utilization_halt: 0.85     # halt at 85% margin usage
-  max_position_size_usd: 10000
+  max_position_size_usd: 2000
   kill_switch_enabled: true
 
 data:
