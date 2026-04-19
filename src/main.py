@@ -105,11 +105,15 @@ class Orchestrator:
             results = self._executor.execute_signal(sig)
 
             for r in results:
-                self._strategy.on_fill(r.coin, r.side.value, r.filled_size, r.price)
+                self._strategy.on_fill(r.coin, r.side.value, r.filled_size, r.price, r.is_spot)
 
         if now - self._last_pnl_log >= self._pnl_interval:
             self._pnl.snapshot()
             self._last_pnl_log = now
+
+        if self._pnl.should_send_daily_summary():
+            summary = self._pnl.build_daily_summary()
+            self._alerts.send(summary)
 
     def _handle_shutdown(self, signum: int, frame) -> None:
         log.info("Shutdown signal received")

@@ -31,7 +31,7 @@ monitor:
   alert_on_new_position: true
   alert_on_close_position: true
   alert_on_drawdown: true
-  telegram_enabled: false
+  telegram_enabled: true
 
 logging:
   level: INFO
