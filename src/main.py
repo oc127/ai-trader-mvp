@@ -114,11 +114,9 @@ class Orchestrator:
 
         if now - self._last_pnl_log >= self._pnl_interval:
             self._pnl.snapshot()
-            self._last_pnl_log = now
-
-        if self._pnl.should_send_daily_summary():
             summary = self._pnl.build_daily_summary()
             self._alerts.send(summary)
+            self._last_pnl_log = now
 
     def _handle_shutdown(self, signum: int, frame) -> None:
         log.info("Shutdown signal received")
