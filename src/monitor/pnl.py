@@ -15,23 +15,45 @@ class PnLTracker:
         self._store = store
         self._initial_equity: float | None = None
         self._last_daily_summary: str = ""
+        self._paper_executor = None
+
+    def set_paper_executor(self, executor) -> None:
+        self._paper_executor = executor
+
+    def _get_equity(self) -> float:
+        if self._paper_executor is not None:
+            return self._paper_executor.get_equity()
+        return self._client.get_account_state().equity
 
     def snapshot(self) -> dict:
-        account = self._client.get_account_state()
+        equity = self._get_equity()
 
         if self._initial_equity is None:
-            self._initial_equity = account.equity
+            self._initial_equity = equity
 
-        total_unrealized = sum(p.unrealized_pnl for p in account.positions)
+        if self._paper_executor is not None:
+            positions = self._paper_executor.positions
+            total_unrealized = 0.0
+            available = self._paper_executor.balance
+            margin_used = 0.0
+            margin_util = 0.0
+            num_positions = len(positions)
+        else:
+            account = self._client.get_account_state()
+            total_unrealized = sum(p.unrealized_pnl for p in account.positions)
+            available = account.available_balance
+            margin_used = account.margin_used
+            margin_util = account.margin_utilization
+            num_positions = len(account.positions)
 
         snapshot = {
-            "equity": account.equity,
-            "available_balance": account.available_balance,
+            "equity": equity,
+            "available_balance": available,
             "unrealized_pnl": total_unrealized,
-            "realized_pnl": account.equity - self._initial_equity - total_unrealized,
-            "margin_used": account.margin_used,
-            "margin_utilization": account.margin_utilization,
-            "num_positions": len(account.positions),
+            "realized_pnl": equity - self._initial_equity - total_unrealized,
+            "margin_used": margin_used,
+            "margin_utilization": margin_util,
+            "num_positions": num_positions,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -52,14 +74,13 @@ class PnLTracker:
             return True
         return False
 
-    def build_daily_summary(self, positions: dict | None = None) -> str:
-        account = self._client.get_account_state()
-        total_unrealized = sum(p.unrealized_pnl for p in account.positions)
+    def build_daily_summary(self) -> str:
+        equity = self._get_equity()
 
         if self._initial_equity is None:
-            self._initial_equity = account.equity
+            self._initial_equity = equity
 
-        total_return = account.equity - self._initial_equity
+        total_return = equity - self._initial_equity
         return_pct = (total_return / self._initial_equity * 100) if self._initial_equity > 0 else 0
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -68,15 +89,26 @@ class PnLTracker:
         lines = [
             f"*HL | Daily Summary — {today}*",
             "",
-            f"💰 Equity: ${account.equity:,.2f}",
-            f"📈 Total Return: ${total_return:+,.2f} ({return_pct:+.2f}%)",
-            f"📉 Unrealized PnL: ${total_unrealized:+,.2f}",
-            f"🏦 Available: ${account.available_balance:,.2f}",
-            f"⚖️ Margin Used: {account.margin_utilization:.1%}",
-            f"📌 Open Positions: {len(account.positions)}",
+            f"Equity: ${equity:,.2f}",
+            f"Return: ${total_return:+,.2f} ({return_pct:+.2f}%)",
         ]
 
-        for p in account.positions:
-            lines.append(f"  • {p.coin}: size={p.size:.4f}, PnL=${p.unrealized_pnl:+,.2f}")
+        if self._paper_executor is not None:
+            lines.append(f"Cash: ${self._paper_executor.balance:,.2f}")
+            positions = self._paper_executor.positions
+            lines.append(f"Positions: {len(positions)}")
+            for coin, pos in positions.items():
+                spot = pos.get("spot", 0)
+                perp = pos.get("perp", 0)
+                if abs(spot) > 1e-8 or abs(perp) > 1e-8:
+                    lines.append(f"  {coin}: spot={spot:.4f}, perp={perp:.4f}")
+        else:
+            account = self._client.get_account_state()
+            lines.append(f"Available: ${account.available_balance:,.2f}")
+            lines.append(f"Margin: {account.margin_utilization:.1%}")
+            lines.append(f"Positions: {len(account.positions)}")
+            for p in account.positions:
+                lines.append(f"  {p.coin}: size={p.size:.4f}, PnL=${p.unrealized_pnl:+,.2f}")
 
+        lines.append(f"\n_Mode: {'PAPER' if self._paper_executor else 'LIVE'}_")
         return "\n".join(lines)

@@ -39,6 +39,7 @@ class Orchestrator:
         if paper:
             self._executor = PaperExecutor(self._client, self._store)
             self._strategy.set_paper_equity(self._executor.balance)
+            self._pnl.set_paper_executor(self._executor)
             log.info("Running in PAPER mode")
         else:
             self._executor = LiveExecutor(self._client, self._store)
