@@ -17,7 +17,28 @@ from src.strategy.funding_arb import FundingArbStrategy
 
 log = get_logger(__name__)
 
-TOP_COINS = ["BTC", "ETH", "SOL", "DOGE", "ARB", "OP", "AVAX", "MATIC", "LINK", "SUI"]
+TOP_COINS = [
+    "BTC",
+    "ETH",
+    "SOL",
+    "DOGE",
+    "ARB",
+    "OP",
+    "AVAX",
+    "SUI",
+    "LINK",
+    "WIF",
+    "PEPE",
+    "NEAR",
+    "FTM",
+    "INJ",
+    "TIA",
+    "JUP",
+    "RENDER",
+    "SEI",
+    "APT",
+    "STRK",
+]
 
 
 class Orchestrator:

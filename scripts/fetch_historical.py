@@ -15,7 +15,28 @@ from src.data.store import DataStore
 from src.hl_client.rest import HLRestClient
 from src.logger import setup_logging
 
-TOP_COINS = ["BTC", "ETH", "SOL", "DOGE", "ARB", "OP", "AVAX", "MATIC", "LINK", "SUI"]
+TOP_COINS = [
+    "BTC",
+    "ETH",
+    "SOL",
+    "DOGE",
+    "ARB",
+    "OP",
+    "AVAX",
+    "SUI",
+    "LINK",
+    "WIF",
+    "PEPE",
+    "NEAR",
+    "FTM",
+    "INJ",
+    "TIA",
+    "JUP",
+    "RENDER",
+    "SEI",
+    "APT",
+    "STRK",
+]
 
 
 def main() -> None:

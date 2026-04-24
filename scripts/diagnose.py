@@ -30,7 +30,7 @@ def main() -> None:
             flag = " <<< ABOVE THRESHOLD" if rate.rate >= ENTRY_THRESHOLD else ""
             if rate.rate >= ENTRY_THRESHOLD:
                 above += 1
-            print(f"  {coin:6s}: {rate.rate:+.6f} ({rate.rate*100:.4f}%) @ {rate.timestamp}{flag}")
+            print(f"  {coin:6s}: {rate.rate:+.6f} ({rate.rate * 100:.4f}%) @ {rate.timestamp}{flag}")
         else:
             print(f"  {coin:6s}: no data")
 

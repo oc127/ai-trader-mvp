@@ -5,14 +5,14 @@ exchange:
 strategy:
   funding_arb:
     enabled: true
-    entry_rate_threshold: 0.0001    # 0.01% per hour (~8.7% APY)
-    exit_rate_threshold: 0.00003    # 0.003% per hour (~2.6% APY)
+    entry_rate_threshold: 0.000012   # 0.0012% per hour (~10.5% APY)
+    exit_rate_threshold: 0.000003   # 0.0003% per hour (~2.6% APY)
     max_pairs: 5
     per_pair_max_pct: 0.20          # 20% of capital per pair
     margin_buffer_pct: 0.20         # 20% capital reserved as buffer
     rebalance_delta_threshold: 0.02 # rebalance if delta > 2%
     basis_exit_threshold: 0.03      # exit if basis diverges > 3%
-    min_liquidity_usd: 50000        # minimum orderbook depth
+    min_liquidity_usd: 5000         # minimum orderbook depth
 
 risk:
   max_drawdown_pct: 0.05            # -5% NAV → pause all
