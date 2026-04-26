@@ -14,12 +14,29 @@ strategy:
     basis_exit_threshold: 0.03      # exit if basis diverges > 3%
     min_liquidity_usd: 5000         # minimum orderbook depth
 
+  market_maker:
+    enabled: true
+    coins: ["BTC", "ETH"]
+    spread_bps: 3                   # 3 bps total (1.5 each side)
+    num_tiers: 5
+    tier_spacing_bps: 2             # each tier 2 bps wider
+    tier_size_multiplier: 1.5       # 1.5x size per tier
+    base_order_usd: 500             # tier 0 order size
+    max_inventory_usd: 50000        # per coin per side
+    volatility_pause_pct: 0.01      # 1% move triggers widen/pause
+    volatility_cooldown_sec: 120    # 2 min cooldown after vol spike
+    tick_interval_sec: 10           # MM ticks every 10 seconds
+
 risk:
   max_drawdown_pct: 0.05            # -5% NAV → pause all
   margin_utilization_warn: 0.70     # warn at 70% margin usage
   margin_utilization_halt: 0.85     # halt at 85% margin usage
   max_position_size_usd: 2000
   kill_switch_enabled: true
+  market_maker:
+    per_coin_inventory_usd: 50000   # $50K per side per coin
+    total_exposure_usd: 100000      # $100K across all coins
+    max_drawdown_pct: 0.02          # 2% MM drawdown → pause MM
 
 data:
   funding_poll_interval_sec: 300    # poll funding rates every 5 min

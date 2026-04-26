@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import uuid
 
 from src.data.store import DataStore
@@ -8,11 +9,36 @@ from src.hl_client.rest import HLRestClient
 from src.hl_client.types import OrderResult, OrderStatus, Side
 from src.logger import get_logger
 from src.strategy.base import Signal
+from src.strategy.market_maker import QuoteLevel
 
 log = get_logger(__name__)
 
 TAKER_FEE = 0.00035
 MAKER_FEE = 0.0001
+
+# Fill probability model for limit orders
+AGGRESSIVE_FILL_PROB = 0.70  # at or better than BBO
+PASSIVE_FILL_PROB = 0.20  # behind BBO
+
+
+class LimitOrder:
+    """Represents a resting limit order in the paper simulator."""
+
+    def __init__(
+        self,
+        order_id: str,
+        coin: str,
+        side: str,
+        price: float,
+        size: float,
+        strategy_tag: str = "funding_arb",
+    ) -> None:
+        self.order_id = order_id
+        self.coin = coin
+        self.side = side
+        self.price = price
+        self.size = size
+        self.strategy_tag = strategy_tag
 
 
 class PaperExecutor(Executor):
@@ -22,6 +48,9 @@ class PaperExecutor(Executor):
         self._balance = initial_balance
         self._positions: dict[str, dict] = {}
         self._trade_log: list[dict] = []
+
+        # MM limit order book
+        self._limit_orders: list[LimitOrder] = []
 
     @property
     def balance(self) -> float:
@@ -136,6 +165,9 @@ class PaperExecutor(Executor):
             self._positions.pop(coin, None)
             log.info("Paper position flattened", extra={"coin": coin})
 
+        # Cancel all limit orders
+        self._limit_orders.clear()
+
         return results
 
     def apply_funding(self, coin: str, rate: float) -> float:
@@ -151,6 +183,161 @@ class PaperExecutor(Executor):
 
         log.debug("Paper funding applied", extra={"coin": coin, "rate": rate, "payment": funding_payment})
         return funding_payment
+
+    # --- Market Making limit order support ---
+
+    def place_limit_orders(self, orders: list[QuoteLevel], coin: str, strategy_tag: str = "market_maker") -> list[str]:
+        """Place a batch of limit orders for market making.
+
+        Args:
+            orders: List of QuoteLevel objects with side, price, size, tier.
+            coin: The coin these orders are for.
+            strategy_tag: Tag to identify which strategy owns these orders.
+
+        Returns:
+            List of order IDs.
+        """
+        order_ids = []
+        for quote in orders:
+            order_id = f"paper-mm-{uuid.uuid4().hex[:8]}"
+            limit_order = LimitOrder(
+                order_id=order_id,
+                coin=coin,
+                side=quote.side,
+                price=quote.price,
+                size=quote.size,
+                strategy_tag=strategy_tag,
+            )
+            self._limit_orders.append(limit_order)
+            order_ids.append(order_id)
+
+        log.info(
+            "Paper MM limit orders placed",
+            extra={"coin": coin, "count": len(orders), "tag": strategy_tag},
+        )
+        return order_ids
+
+    def cancel_orders(self, coin: str, strategy_tag: str = "market_maker") -> int:
+        """Cancel all resting limit orders for a coin and strategy.
+
+        Args:
+            coin: The coin to cancel orders for.
+            strategy_tag: Only cancel orders with this tag.
+
+        Returns:
+            Number of orders cancelled.
+        """
+        before = len(self._limit_orders)
+        self._limit_orders = [
+            o for o in self._limit_orders if not (o.coin == coin and o.strategy_tag == strategy_tag)
+        ]
+        cancelled = before - len(self._limit_orders)
+        if cancelled > 0:
+            log.info(
+                "Paper MM orders cancelled",
+                extra={"coin": coin, "cancelled": cancelled, "tag": strategy_tag},
+            )
+        return cancelled
+
+    def check_limit_fills(self, current_prices: dict[str, float]) -> list[dict]:
+        """Check which limit orders would be filled given current prices.
+
+        Fill logic:
+        - Buy fills when mark <= order price
+        - Sell fills when mark >= order price
+        - Fill probability: 70% at BBO (aggressive), 20% behind BBO (passive)
+
+        Args:
+            current_prices: dict mapping coin -> current mid/mark price.
+
+        Returns:
+            List of fill dicts with coin, side, size, price, order_id, strategy_tag.
+        """
+        fills: list[dict] = []
+        remaining: list[LimitOrder] = []
+
+        for order in self._limit_orders:
+            current_price = current_prices.get(order.coin)
+            if current_price is None:
+                remaining.append(order)
+                continue
+
+            would_fill = False
+            if order.side == "buy" and current_price <= order.price:
+                would_fill = True
+            elif order.side == "sell" and current_price >= order.price:
+                would_fill = True
+
+            if would_fill:
+                # Determine fill probability based on how aggressive the order is
+                if order.side == "buy":
+                    # Closer to current price = more aggressive
+                    distance_pct = (order.price - current_price) / current_price if current_price > 0 else 0
+                else:
+                    distance_pct = (current_price - order.price) / current_price if current_price > 0 else 0
+
+                # Use aggressive prob if price is very close (within 1 bps), passive otherwise
+                if distance_pct < 0.0001:
+                    fill_prob = AGGRESSIVE_FILL_PROB
+                else:
+                    fill_prob = PASSIVE_FILL_PROB
+
+                if random.random() < fill_prob:
+                    fee = order.size * order.price * MAKER_FEE
+                    self._balance -= fee
+
+                    # Update perp position for MM fills
+                    side_enum = Side.BUY if order.side == "buy" else Side.SELL
+                    self._update_paper_position(order.coin, side_enum, order.size, order.price, is_spot=False)
+
+                    fill = {
+                        "coin": order.coin,
+                        "side": order.side,
+                        "size": order.size,
+                        "price": order.price,
+                        "order_id": order.order_id,
+                        "strategy_tag": order.strategy_tag,
+                        "fee": fee,
+                    }
+                    fills.append(fill)
+
+                    self._store.save_trade(
+                        coin=order.coin,
+                        side=order.side,
+                        size=order.size,
+                        price=order.price,
+                        order_id=order.order_id,
+                        is_spot=False,
+                        fee=fee,
+                    )
+
+                    log.info(
+                        "Paper MM limit order filled",
+                        extra={
+                            "coin": order.coin,
+                            "side": order.side,
+                            "size": order.size,
+                            "price": order.price,
+                            "fee": fee,
+                            "tag": order.strategy_tag,
+                        },
+                    )
+                else:
+                    remaining.append(order)
+            else:
+                remaining.append(order)
+
+        self._limit_orders = remaining
+        return fills
+
+    def get_limit_orders(self, coin: str | None = None, strategy_tag: str | None = None) -> list[LimitOrder]:
+        """Get resting limit orders, optionally filtered by coin and/or strategy tag."""
+        orders = self._limit_orders
+        if coin is not None:
+            orders = [o for o in orders if o.coin == coin]
+        if strategy_tag is not None:
+            orders = [o for o in orders if o.strategy_tag == strategy_tag]
+        return list(orders)
 
     def _update_paper_position(self, coin: str, side: Side, size: float, price: float, is_spot: bool) -> None:
         if coin not in self._positions:
