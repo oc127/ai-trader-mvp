@@ -111,4 +111,36 @@ class PnLTracker:
                 lines.append(f"  {p.coin}: size={p.size:.4f}, PnL=${p.unrealized_pnl:+,.2f}")
 
         lines.append(f"\n_Mode: {'PAPER' if self._paper_executor else 'LIVE'}_")
+
+        # Append top funding rates scan
+        try:
+            rates = self._scan_funding_rates()
+            if rates:
+                lines.append("")
+                lines.append("*Top Funding Rates:*")
+                for r in rates[:8]:
+                    sign = "+" if r["rate_annual"] > 0 else ""
+                    lines.append(f"  {r['coin']}: {sign}{r['rate_annual']:.1f}%/yr ({r['rate_8h']*100:.4f}%/8h)")
+        except Exception:
+            pass
+
         return "\n".join(lines)
+
+    def _scan_funding_rates(self) -> list[dict]:
+        raw = self._client._info.meta_and_asset_ctxs()
+        universe = raw[0]["universe"]
+        ctxs = raw[1]
+        rates = []
+        for i, asset in enumerate(universe):
+            if i >= len(ctxs):
+                break
+            ctx = ctxs[i]
+            if ctx and ctx.get("funding"):
+                rate_8h = float(ctx["funding"])
+                rates.append({
+                    "coin": asset["name"],
+                    "rate_8h": rate_8h,
+                    "rate_annual": rate_8h * 3 * 365 * 100,
+                })
+        rates.sort(key=lambda x: abs(x["rate_annual"]), reverse=True)
+        return rates
