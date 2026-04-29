@@ -113,7 +113,16 @@ class Orchestrator:
         if self._risk.is_halted:
             return
 
-        account = self._client.get_account_state()
+        if self._paper and isinstance(self._executor, PaperExecutor):
+            from src.hl_client.types import AccountState
+            equity = self._executor.get_equity()
+            account = AccountState(
+                equity=equity,
+                available_balance=equity * 0.8,
+                margin_used=equity * 0.2,
+            )
+        else:
+            account = self._client.get_account_state()
         alerts = self._risk.update(account)
         for alert in alerts:
             self._alerts.send(alert, level="error")
