@@ -29,8 +29,12 @@ TESTNET_URL = "https://api.hyperliquid-testnet.xyz"
 
 class HLRestClient:
     def __init__(self, cfg: dict) -> None:
+        private_key = os.getenv("HL_PRIVATE_KEY", "")
         use_testnet = cfg.get("exchange", {}).get("use_testnet", True)
-        self._base_url = TESTNET_URL if use_testnet else MAINNET_URL
+        if not private_key:
+            self._base_url = MAINNET_URL
+        else:
+            self._base_url = TESTNET_URL if use_testnet else MAINNET_URL
 
         private_key = os.getenv("HL_PRIVATE_KEY", "")
         self._address = os.getenv("HL_WALLET_ADDRESS", "")
@@ -56,7 +60,11 @@ class HLRestClient:
         return {k: float(v) for k, v in raw.items()}
 
     def get_funding_rates(self, coin: str, start_time: int, end_time: int | None = None) -> list[FundingRate]:
-        raw = self._info.funding_history(coin, start_time, end_time)
+        try:
+            raw = self._info.funding_history(coin, start_time, end_time)
+        except KeyError:
+            log.debug("Coin not available on exchange", extra={"coin": coin})
+            return []
         rates = []
         for entry in raw:
             rates.append(
