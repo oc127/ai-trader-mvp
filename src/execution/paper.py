@@ -47,6 +47,7 @@ class PaperExecutor(Executor):
         self._store = store
         self._balance = initial_balance
         self._positions: dict[str, dict] = {}
+        self._perp_entries: dict[str, float] = {}  # coin -> avg entry price
         self._trade_log: list[dict] = []
 
         # MM limit order book
@@ -344,16 +345,34 @@ class PaperExecutor(Executor):
             self._positions[coin] = {"spot": 0.0, "perp": 0.0}
 
         key = "spot" if is_spot else "perp"
+        old_size = self._positions[coin][key]
+
         if side == Side.BUY:
             self._positions[coin][key] += size
         else:
             self._positions[coin][key] -= size
+
+        if not is_spot:
+            new_size = self._positions[coin]["perp"]
+            if abs(old_size) < 1e-10:
+                self._perp_entries[coin] = price
+            elif (old_size > 0 and side == Side.BUY) or (old_size < 0 and side == Side.SELL):
+                old_entry = self._perp_entries.get(coin, price)
+                total = abs(old_size) + size
+                self._perp_entries[coin] = (abs(old_size) * old_entry + size * price) / total
+            if abs(new_size) < 1e-10:
+                self._perp_entries.pop(coin, None)
 
     def get_equity(self) -> float:
         equity = self._balance
         mids = self._client.get_all_mids()
         for coin, pos in self._positions.items():
             mid = mids.get(coin, 0)
+            if mid <= 0:
+                continue
             equity += pos.get("spot", 0) * mid
-            equity += pos.get("perp", 0) * mid
+            perp_size = pos.get("perp", 0)
+            if abs(perp_size) > 1e-10:
+                entry = self._perp_entries.get(coin, mid)
+                equity += perp_size * (mid - entry)
         return equity
