@@ -19,6 +19,7 @@ class PnLTracker:
 
     def set_paper_executor(self, executor) -> None:
         self._paper_executor = executor
+        self._initial_equity = executor.balance
 
     def _get_equity(self) -> float:
         if self._paper_executor is not None:
@@ -87,7 +88,7 @@ class PnLTracker:
         self._last_daily_summary = today
 
         lines = [
-            f"*HL | Daily Summary — {today}*",
+            f"*Hourly Report — {today}*",
             "",
             f"Equity: ${equity:,.2f}",
             f"Return: ${total_return:+,.2f} ({return_pct:+.2f}%)",
