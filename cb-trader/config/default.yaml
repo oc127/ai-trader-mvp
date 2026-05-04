@@ -1,0 +1,48 @@
+data:
+  source: akshare
+  db_path: data/cb_trader.db
+
+universe:
+  max_premium_rate: 0.20
+  min_volume_cny: 50_000_000
+  min_price: 100
+  max_price: 200
+  min_remaining_years: 0.5
+  min_days_since_ipo: 20
+  max_count: 20
+
+strategy:
+  weights:
+    stock_lead: 0.30
+    premium_revert: 0.25
+    intraday_regime: 0.20
+    volume_anomaly: 0.15
+    redemption: 0.10
+  thresholds:
+    strong_buy: 1.5
+    buy: 0.8
+    sell: -0.8
+    strong_sell: -1.5
+
+risk:
+  max_daily_loss: 10000
+  max_daily_loss_pct: 0.005
+  max_single_loss_pct: 0.01
+  max_daily_trades: 200
+  halt_after_consecutive_losses: 3
+  max_capital_usage: 0.80
+  max_per_bond: 200000
+
+position:
+  total_capital: 2_000_000
+  max_positions: 10
+  liquidity_limit_pct: 0.01
+
+cost:
+  commission_rate: 0.0001
+  slippage_bps: 2
+  min_commission: 0.1
+
+backtest:
+  start_date: "2023-01-01"
+  end_date: "2025-12-31"
