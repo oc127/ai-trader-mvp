@@ -21,11 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-HEARTBEAT_TIMEOUT_SEC = 120
 CHECK_INTERVAL_SEC = 10
 MAX_DAILY_LOSS = 15000
 MAX_DAILY_TRADES = 300
-MAX_POSITION_COUNT = 20
 
 
 def send_telegram(message: str) -> None:
@@ -62,6 +60,14 @@ def process_alive(pid: int) -> bool:
         return False
 
 
+def _get_china_today() -> str:
+    """Get today's date in Asia/Shanghai timezone (UTC+8)."""
+    from datetime import timedelta, timezone
+
+    cst = timezone(timedelta(hours=8))
+    return datetime.now(cst).strftime("%Y-%m-%d")
+
+
 def check_db_health(db_path: str) -> dict:
     result = {"ok": True, "reasons": []}
     if not Path(db_path).exists():
@@ -71,10 +77,10 @@ def check_db_health(db_path: str) -> dict:
         conn = sqlite3.connect(db_path, timeout=5)
         conn.row_factory = sqlite3.Row
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = _get_china_today()
 
         row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM trades WHERE timestamp LIKE ?",
+            "SELECT COUNT(*) as cnt FROM trades WHERE timestamp LIKE ? AND backtest_run_id IS NULL",
             (f"{today}%",),
         ).fetchone()
 
@@ -84,13 +90,17 @@ def check_db_health(db_path: str) -> dict:
                 result["ok"] = False
                 result["reasons"].append(f"Trade count {trade_count} > {MAX_DAILY_TRADES}")
 
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM daily_pnl WHERE date = ? AND pnl < ?",
-            (today, -MAX_DAILY_LOSS),
-        ).fetchone()
-        if row and row["cnt"] > 0:
-            result["ok"] = False
-            result["reasons"].append(f"Daily PnL exceeded -{MAX_DAILY_LOSS}")
+        rows = conn.execute(
+            "SELECT price, shares, side FROM trades WHERE timestamp LIKE ? AND backtest_run_id IS NULL",
+            (f"{today}%",),
+        ).fetchall()
+        if rows:
+            rough_pnl = sum(
+                r["price"] * r["shares"] * (1 if r["side"] == "SELL" else -1) for r in rows
+            )
+            if rough_pnl < -MAX_DAILY_LOSS:
+                result["ok"] = False
+                result["reasons"].append(f"Estimated daily PnL ¥{rough_pnl:,.0f} < -¥{MAX_DAILY_LOSS:,}")
 
         conn.close()
     except Exception as e:
@@ -117,7 +127,10 @@ def run_watchdog(pid: int, db_path: str) -> None:
                 kill_process(pid, reason)
                 break
 
-            now = datetime.now()
+            from datetime import timedelta, timezone
+
+            cst = timezone(timedelta(hours=8))
+            now = datetime.now(cst)
             if now.hour == 15 and now.minute >= 5:
                 if process_alive(pid):
                     print("[WATCHDOG] Market closed (15:05). Sending SIGTERM.")

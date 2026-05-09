@@ -72,6 +72,7 @@ class RiskManager:
     def reset_daily(self) -> None:
         self._daily_trade_count = 0
         self._consecutive_losses = 0
+        self._halted = False
 
     def check_signal(self, signal: Signal, account: AccountState) -> RiskCheck:
         if self._halted:

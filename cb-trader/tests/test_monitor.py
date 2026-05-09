@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 from src.monitor.alerts import AlertManager
 from src.monitor.pnl import PnLTracker
 
@@ -22,9 +20,8 @@ class TestAlertManager:
 
 class TestPnLTracker:
     def _make_tracker(self, capital: float = 2_000_000) -> PnLTracker:
-        store = MagicMock()
         alerts = AlertManager()
-        return PnLTracker(store, alerts, initial_capital=capital)
+        return PnLTracker(alerts, initial_capital=capital)
 
     def test_initial_state(self) -> None:
         tracker = self._make_tracker()

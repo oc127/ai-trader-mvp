@@ -10,9 +10,6 @@ def validate_funding_rate(rate: FundingRate) -> bool:
     if abs(rate.rate) > 0.01:
         log.debug("Suspicious funding rate: %.6f for %s", rate.rate, rate.coin)
         return False
-    if rate.rate == 0.0 and rate.premium == 0.0:
-        log.debug("Zero rate and premium for %s, likely stale", rate.coin)
-        return False
     return True
 
 

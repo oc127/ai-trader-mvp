@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from src.data.store import DataStore
 from src.logger import get_logger
 from src.monitor.alerts import AlertManager
 
@@ -10,8 +9,7 @@ logger = get_logger(__name__)
 
 
 class PnLTracker:
-    def __init__(self, store: DataStore, alerts: AlertManager, initial_capital: float = 2_000_000) -> None:
-        self._store = store
+    def __init__(self, alerts: AlertManager, initial_capital: float = 2_000_000) -> None:
         self._alerts = alerts
         self._initial_capital = initial_capital
         self._peak_equity: float = initial_capital
