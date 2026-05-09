@@ -39,6 +39,10 @@ class RiskManager:
 
         self._peak_equity: float = 0.0
         self._halted = False
+        self._daily_trade_count: int = 0
+        self._consecutive_losses: int = 0
+        self._halt_after_consecutive: int = risk_cfg.get("halt_after_consecutive_losses", 5)
+        self._max_daily_trades: int = risk_cfg.get("max_daily_trades", 500)
 
         # MM-specific state
         self._mm_paused = False
@@ -52,9 +56,32 @@ class RiskManager:
     def is_mm_paused(self) -> bool:
         return self._mm_paused
 
+    def on_trade_close(self, pnl: float) -> None:
+        self._daily_trade_count += 1
+        if pnl < 0:
+            self._consecutive_losses += 1
+            if self._consecutive_losses >= self._halt_after_consecutive:
+                self._halted = True
+                log.error(
+                    "HALT: %d consecutive losses",
+                    self._consecutive_losses,
+                )
+        else:
+            self._consecutive_losses = 0
+
+    def reset_daily(self) -> None:
+        self._daily_trade_count = 0
+        self._consecutive_losses = 0
+
     def check_signal(self, signal: Signal, account: AccountState) -> RiskCheck:
         if self._halted:
             return RiskCheck(passed=False, reason="Trading halted by risk manager")
+
+        if self._daily_trade_count >= self._max_daily_trades:
+            return RiskCheck(passed=False, reason=f"Max daily trades {self._max_daily_trades} reached")
+
+        if self._consecutive_losses >= self._halt_after_consecutive:
+            return RiskCheck(passed=False, reason=f"Consecutive losses: {self._consecutive_losses}")
 
         dd_check = self._check_drawdown(account)
         if not dd_check.passed:

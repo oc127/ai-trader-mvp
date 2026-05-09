@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 
 from src.data.store import DataStore
+from src.data.validator import validate_funding_rate
 from src.hl_client.rest import HLRestClient
 from src.logger import get_logger
 
@@ -23,8 +24,10 @@ class FundingCollector:
                 one_hour_ago = now_ms - 3600_000
                 rates = self._client.get_funding_rates(coin, one_hour_ago, now_ms)
                 if rates:
-                    self._store.save_funding_rates(rates)
-                    log.debug("Collected funding", extra={"coin": coin, "count": len(rates)})
+                    valid_rates = [r for r in rates if validate_funding_rate(r)]
+                    if valid_rates:
+                        self._store.save_funding_rates(valid_rates)
+                    log.debug("Collected funding", extra={"coin": coin, "valid": len(valid_rates), "total": len(rates)})
             except Exception:
                 log.exception("Failed to collect funding", extra={"coin": coin})
 
@@ -38,9 +41,11 @@ class FundingCollector:
             try:
                 rates = self._client.get_funding_rates(coin, start_ms, end_ms)
                 if rates:
-                    self._store.save_funding_rates(rates)
-                    total += len(rates)
-                    log.info("Backfilled funding", extra={"coin": coin, "count": len(rates)})
+                    valid_rates = [r for r in rates if validate_funding_rate(r)]
+                    if valid_rates:
+                        self._store.save_funding_rates(valid_rates)
+                        total += len(valid_rates)
+                    log.info("Backfilled funding", extra={"coin": coin, "valid": len(valid_rates), "total": len(rates)})
             except Exception:
                 log.exception("Failed to backfill", extra={"coin": coin})
 

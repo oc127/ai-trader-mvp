@@ -5,6 +5,7 @@ from datetime import date, datetime
 import akshare as ak
 import pandas as pd
 
+from src.data.validator import filter_valid_bars, filter_valid_snapshots
 from src.logger import get_logger
 from src.models import BondInfo, BondSnapshot, DailyBar
 
@@ -46,7 +47,8 @@ class DataFetcher:
                 logger.debug("Skipping row: %s", e)
                 continue
 
-        logger.info("Fetched %d bond snapshots", len(snapshots))
+        snapshots = filter_valid_snapshots(snapshots)
+        logger.info("Fetched %d valid bond snapshots", len(snapshots))
         return snapshots
 
     def fetch_daily_bars(self, code: str, start: date | None = None, end: date | None = None) -> list[DailyBar]:
@@ -88,7 +90,8 @@ class DataFetcher:
                 logger.debug("Skipping bar row for %s: %s", code, e)
                 continue
 
-        logger.debug("Fetched %d bars for %s", len(bars), code)
+        bars = filter_valid_bars(bars)
+        logger.debug("Fetched %d valid bars for %s", len(bars), code)
         return bars
 
     def fetch_stock_daily(self, stock_code: str, start: str | None = None, end: str | None = None) -> list[DailyBar]:
