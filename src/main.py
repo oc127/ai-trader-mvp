@@ -158,6 +158,9 @@ class Orchestrator:
             self._tick_market_maker()
             self._last_mm_tick = now
 
+        # Combined delta check: detect unhedged exposure from MM + Arb overlap
+        self._check_combined_delta()
+
         if now - self._last_pnl_log >= self._pnl_interval:
             self._pnl.snapshot()
             summary = self._pnl.build_daily_summary()
@@ -284,6 +287,44 @@ class Orchestrator:
             if mid is not None:
                 prices[coin] = mid
         return prices
+
+    def _check_combined_delta(self) -> None:
+        """Check net directional exposure across all strategies.
+
+        Funding arb is delta-neutral by design, but MM accumulates perp inventory
+        on top of arb's hedged positions. This check catches when the combined
+        net exposure on any single coin exceeds a safe threshold.
+        """
+        if not (self._paper and isinstance(self._executor, PaperExecutor)):
+            return
+
+        mids = self._client.get_all_mids()
+        max_unhedged_usd = self._cfg.get("risk", {}).get("max_unhedged_per_coin_usd", 2000)
+
+        for coin, pos in self._executor.positions.items():
+            spot = pos.get("spot", 0.0)
+            perp = pos.get("perp", 0.0)
+            net_delta = spot + perp
+            mid = mids.get(coin, 0)
+            if mid <= 0:
+                continue
+
+            net_exposure_usd = abs(net_delta) * mid
+            if net_exposure_usd > max_unhedged_usd:
+                log.warning(
+                    "Unhedged exposure detected",
+                    extra={
+                        "coin": coin,
+                        "spot": spot,
+                        "perp": perp,
+                        "net_delta": net_delta,
+                        "exposure_usd": net_exposure_usd,
+                    },
+                )
+                self._alerts.send(
+                    f"⚠️ {coin} net delta={net_delta:.6f} (${net_exposure_usd:.0f} unhedged)",
+                    level="warning",
+                )
 
     def _handle_shutdown(self, signum: int, frame) -> None:
         log.info("Shutdown signal received")
