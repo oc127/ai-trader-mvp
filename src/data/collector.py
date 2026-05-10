@@ -28,6 +28,8 @@ class FundingCollector:
                     if valid_rates:
                         self._store.save_funding_rates(valid_rates)
                     log.debug("Collected funding", extra={"coin": coin, "valid": len(valid_rates), "total": len(rates)})
+            except KeyError:
+                log.warning("Coin not found on exchange, skipping", extra={"coin": coin})
             except Exception:
                 log.exception("Failed to collect funding", extra={"coin": coin})
 
