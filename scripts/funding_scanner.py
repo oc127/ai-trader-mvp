@@ -16,19 +16,20 @@ import sys
 import time
 from datetime import datetime, timezone
 
-import httpx
+import requests
 
 COINS = ["BTC", "ETH", "SOL", "DOGE", "AVAX", "LINK"]
 TIMEOUT = 10
 
 
-def fetch_binance(client: httpx.Client, coins: list[str]) -> dict[str, dict]:
+def fetch_binance(client: requests.Session, coins: list[str]) -> dict[str, dict]:
     results = {}
     for coin in coins:
         try:
             resp = client.get(
                 "https://fapi.binance.com/fapi/v1/premiumIndex",
                 params={"symbol": f"{coin}USDT"},
+                timeout=TIMEOUT,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -45,12 +46,13 @@ def fetch_binance(client: httpx.Client, coins: list[str]) -> dict[str, dict]:
     return results
 
 
-def fetch_gate(client: httpx.Client, coins: list[str]) -> dict[str, dict]:
+def fetch_gate(client: requests.Session, coins: list[str]) -> dict[str, dict]:
     results = {}
     for coin in coins:
         try:
             resp = client.get(
                 f"https://api.gateio.ws/api/v4/futures/usdt/contracts/{coin}_USDT",
+                timeout=TIMEOUT,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -67,13 +69,14 @@ def fetch_gate(client: httpx.Client, coins: list[str]) -> dict[str, dict]:
     return results
 
 
-def fetch_okx(client: httpx.Client, coins: list[str]) -> dict[str, dict]:
+def fetch_okx(client: requests.Session, coins: list[str]) -> dict[str, dict]:
     results = {}
     for coin in coins:
         try:
             resp = client.get(
                 "https://www.okx.com/api/v5/public/funding-rate",
                 params={"instId": f"{coin}-USDT-SWAP"},
+                timeout=TIMEOUT,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -177,10 +180,10 @@ def main() -> None:
     coins = [c.upper() for c in args.coins]
 
     while True:
-        with httpx.Client(timeout=TIMEOUT) as client:
-            binance = fetch_binance(client, coins)
-            gate = fetch_gate(client, coins)
-            okx = fetch_okx(client, coins)
+        client = requests.Session()
+        binance = fetch_binance(client, coins)
+        gate = fetch_gate(client, coins)
+        okx = fetch_okx(client, coins)
 
         print_table(coins, binance, gate, okx)
 
