@@ -133,13 +133,13 @@ def run_bot(client: GateClient, config: dict, paper: bool) -> None:
 
 
 def main() -> None:
-    setup_logging()
     parser = argparse.ArgumentParser(description="Gate.io Funding Arb Bot")
     parser.add_argument("--paper", action="store_true", help="Paper trading mode (no real orders)")
     parser.add_argument("--scan-only", action="store_true", help="Just scan and display opportunities")
     args = parser.parse_args()
 
     config = load_config()
+    setup_logging(config)
 
     api_key = os.environ.get("GATE_API_KEY", "")
     api_secret = os.environ.get("GATE_API_SECRET", "")
