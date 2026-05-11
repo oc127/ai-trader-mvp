@@ -73,6 +73,8 @@ class Orchestrator:
         self._last_funding_poll = 0.0
         self._last_pnl_log = 0.0
         self._last_mm_tick = 0.0
+        self._last_delta_alert: dict[str, float] = {}
+        self._delta_alert_cooldown = cfg.get("risk", {}).get("delta_alert_cooldown_sec", 3600)
 
         # WebSocket mid-price cache (populated if WS is running)
         self._ws_mids: dict[str, float] = {}
@@ -295,6 +297,7 @@ class Orchestrator:
         if not (self._paper and isinstance(self._executor, PaperExecutor)):
             return
 
+        now = time.time()
         mids = self._client.get_all_mids()
         max_unhedged_usd = self._cfg.get("risk", {}).get("max_unhedged_per_coin_usd", 2000)
 
@@ -308,6 +311,10 @@ class Orchestrator:
 
             net_exposure_usd = abs(net_delta) * mid
             if net_exposure_usd > max_unhedged_usd:
+                last_alert = self._last_delta_alert.get(coin, 0.0)
+                if now - last_alert < self._delta_alert_cooldown:
+                    continue
+
                 log.warning(
                     "Unhedged exposure detected",
                     extra={
@@ -322,6 +329,9 @@ class Orchestrator:
                     f"⚠️ {coin} net delta={net_delta:.6f} (${net_exposure_usd:.0f} unhedged)",
                     level="warning",
                 )
+                self._last_delta_alert[coin] = now
+            else:
+                self._last_delta_alert.pop(coin, None)
 
     def _handle_shutdown(self, signum: int, frame) -> None:
         log.info("Shutdown signal received")

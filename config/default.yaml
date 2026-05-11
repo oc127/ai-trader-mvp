@@ -33,6 +33,7 @@ risk:
   margin_utilization_halt: 0.85     # halt at 85% margin usage
   max_position_size_usd: 2000
   max_unhedged_per_coin_usd: 1500   # alert if net delta > $1500 per coin
+  delta_alert_cooldown_sec: 3600    # only re-alert same coin once per hour
   halt_after_consecutive_losses: 5  # halt after 5 consecutive losing trades
   max_daily_trades: 500             # max trades per day
   kill_switch_enabled: true
