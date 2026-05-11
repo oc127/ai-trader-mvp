@@ -14,14 +14,13 @@ def gate_get(path, query=""):
     if query:
         url = url + "?" + query
     r = requests.get(url, headers={"KEY": key, "SIGN": sign, "Timestamp": ts}, timeout=10)
-    return r.status_code, r.json()
+    try:
+        return r.status_code, r.json()
+    except Exception:
+        return r.status_code, {"error": r.text[:200]}
 
 
-print("=== API PERMISSIONS ===")
-c, d = gate_get("/api/v4/api_key")
-print(c, json.dumps(d, indent=2))
-
-print("\n=== SPOT BALANCES ===")
+print("=== SPOT BALANCES ===")
 c, d = gate_get("/api/v4/spot/accounts")
 if c == 200:
     for a in d:
