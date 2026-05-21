@@ -157,6 +157,7 @@ class GateClient:
             "type": "market",
             "side": "buy",
             "amount": str(spend_usdt),
+            "time_in_force": "ioc",
         }
         log.info("Spot market buy", extra={"pair": pair, "spend_usdt": spend_usdt})
         return self._request("POST", "/api/v4/spot/orders", body=body, auth=True)
@@ -167,6 +168,7 @@ class GateClient:
             "type": "market",
             "side": "sell",
             "amount": str(amount),
+            "time_in_force": "ioc",
         }
         log.info("Spot market sell", extra={"pair": pair, "amount": amount})
         return self._request("POST", "/api/v4/spot/orders", body=body, auth=True)
