@@ -99,6 +99,9 @@ def run_bot(client, config: dict, paper: bool) -> None:
     log.info("Gate.io Market Maker starting", extra={"mode": mode, "pairs": mm.pairs})
     alerts.send(f"Gate MM started ({mode}) — pairs: {', '.join(mm.pairs)}")
 
+    if not paper:
+        mm.sync_balances()
+
     running = True
     last_summary = 0.0
     summary_interval = config.get("monitor", {}).get("summary_interval_sec", 1800)

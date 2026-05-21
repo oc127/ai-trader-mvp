@@ -81,6 +81,25 @@ class GateMarketMaker:
     def get_total_inventory_usd(self) -> float:
         return sum(abs(s.inventory_usd) for s in self._states.values())
 
+    def sync_balances(self) -> None:
+        """Load actual coin balances from exchange into inventory state."""
+        try:
+            balances = self._client.get_spot_balances()
+        except Exception:
+            log.warning("Failed to fetch spot balances")
+            return
+
+        for pair in self._pairs:
+            coin = pair.split("_")[0]
+            amount = balances.get(coin, 0.0)
+            state = self.get_state(pair)
+            if amount > 0 and state.inventory == 0:
+                mid = state.mid_price if state.mid_price > 0 else 1.0
+                state.inventory = amount
+                state.inventory_usd = amount * mid
+                log.info("Loaded balance for %s: %.4f coins ($%.2f)",
+                         pair, amount, state.inventory_usd)
+
     def tick(self, pair: str) -> dict:
         """Main loop tick for one pair. Returns action taken."""
         state = self.get_state(pair)
@@ -167,10 +186,13 @@ class GateMarketMaker:
             state.inventory_usd < self._max_inventory_usd
             and total_inv < self._max_total_inventory_usd
         )
-        can_sell = state.inventory_usd > -self._max_inventory_usd
+        # Spot MM: can only sell coins we actually hold
+        can_sell = state.inventory > 0
 
         price_prec = self._price_precision.get(pair, 6)
         amount_prec = self._amount_precision.get(pair, 2)
+
+        remaining_sell = state.inventory if can_sell else 0.0
 
         quotes: list[Quote] = []
         for tier in range(self._num_tiers):
@@ -185,12 +207,15 @@ class GateMarketMaker:
                     amount=round(size, amount_prec), tier=tier,
                 ))
 
-            if can_sell:
-                ask = round(skewed_mid * (1 + offset), price_prec)
-                quotes.append(Quote(
-                    side="sell", price=ask,
-                    amount=round(size, amount_prec), tier=tier,
-                ))
+            if can_sell and remaining_sell > 0:
+                sell_size = min(size, remaining_sell)
+                if sell_size > 0:
+                    ask = round(skewed_mid * (1 + offset), price_prec)
+                    quotes.append(Quote(
+                        side="sell", price=ask,
+                        amount=round(sell_size, amount_prec), tier=tier,
+                    ))
+                    remaining_sell -= sell_size
 
         return quotes
 

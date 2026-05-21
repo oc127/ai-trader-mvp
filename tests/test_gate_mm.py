@@ -70,7 +70,7 @@ def mm(client, config):
     return GateMarketMaker(client, config)
 
 
-def test_tick_places_orders(mm, client):
+def test_tick_places_buy_orders(mm, client):
     result = mm.tick("TEST_USDT")
     assert result["action"] == "refreshed"
     assert result["n_quotes"] > 0
@@ -79,10 +79,14 @@ def test_tick_places_orders(mm, client):
     buy_orders = [o for o in client.orders if o["side"] == "buy"]
     sell_orders = [o for o in client.orders if o["side"] == "sell"]
     assert len(buy_orders) == 2
-    assert len(sell_orders) == 2
+    assert len(sell_orders) == 0  # no inventory, no sells
 
 
 def test_tick_respects_tiers(mm, client):
+    state = mm.get_state("TEST_USDT")
+    state.inventory = 100000
+    state.inventory_usd = 500
+
     mm.tick("TEST_USDT")
     buys = sorted([o for o in client.orders if o["side"] == "buy"], key=lambda x: -x["price"])
     sells = sorted([o for o in client.orders if o["side"] == "sell"], key=lambda x: x["price"])
@@ -94,6 +98,7 @@ def test_tick_respects_tiers(mm, client):
 
 def test_inventory_skew(mm, client):
     state = mm.get_state("TEST_USDT")
+    state.inventory = 50000
     state.inventory_usd = 1500
 
     mm.tick("TEST_USDT")
@@ -107,6 +112,25 @@ def test_inventory_skew(mm, client):
         avg_ask = sum(o["price"] for o in sells) / len(sells)
         skewed_mid = (avg_bid + avg_ask) / 2
         assert skewed_mid < mid
+
+
+def test_no_sells_without_inventory(mm, client):
+    """Spot MM: can't sell coins we don't have."""
+    mm.tick("TEST_USDT")
+
+    sells = [o for o in client.orders if o["side"] == "sell"]
+    assert len(sells) == 0
+
+
+def test_sells_with_inventory(mm, client):
+    state = mm.get_state("TEST_USDT")
+    state.inventory = 5000
+    state.inventory_usd = 500
+
+    mm.tick("TEST_USDT")
+
+    sells = [o for o in client.orders if o["side"] == "sell"]
+    assert len(sells) > 0
 
 
 def test_max_inventory_stops_buying(mm, client):
