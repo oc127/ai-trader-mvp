@@ -221,7 +221,7 @@ class GateMarketMaker:
         price_prec = self._price_precision.get(pair, 6)
         amount_prec = self._amount_precision.get(pair, 2)
 
-        remaining_sell = coin_balance if can_sell else 0.0
+        remaining_sell = coin_balance * 0.95 if can_sell else 0.0
         remaining_buy_usd = min(
             usdt_balance * 0.8,
             self._max_inventory_usd - coin_balance_usd,
