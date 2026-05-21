@@ -100,7 +100,6 @@ def run_bot(client, config: dict, paper: bool) -> None:
     alerts.send(f"Gate MM started ({mode}) — pairs: {', '.join(mm.pairs)}")
 
     if not paper:
-        mm.sync_balances()
         mm.seed_inventory()
 
     running = True
