@@ -1,41 +1,40 @@
 market_maker:
-  # 交易对 — 选流动性中等、spread 较大的小币种
-  # spread 太小的大币种（BTC/ETH）散户做市没优势，会被专业做市商吃掉
+  # 选 spread 大（>100bps）、量适中（$100K-500K）的小币种
   pairs:
-    - DOGE_USDT
-    - PEPE_USDT
+    - BNKR_USDT
+    - KCT_USDT
 
-  # 报价参数
-  base_spread_bps: 10          # 基础 spread 10bps（0.1%）
-  min_spread_bps: 5            # 最小 spread 5bps
+  # 报价参数 — 针对 100+ bps spread 的小币种
+  base_spread_bps: 40          # 基础 spread 40bps（市场 spread 的 ~30%）
+  min_spread_bps: 20           # 最小 spread 20bps
   num_tiers: 3                 # 每侧3档报价
-  tier_spacing_bps: 5          # 每档间距 5bps
+  tier_spacing_bps: 15         # 每档间距 15bps（小币种需要更宽）
   tier_size_multiplier: 1.5    # 外档 size 是内档的 1.5 倍
-  base_order_usd: 50           # 最内档 $50
+  base_order_usd: 20           # 最内档 $20（小资金保守）
 
   # 库存管理
-  max_inventory_usd: 2000      # 单币种最大库存 $2000
-  max_total_inventory_usd: 5000 # 所有币种总库存上限 $5000
-  skew_intensity: 1.0          # 库存偏移强度（1.0 = 标准）
+  max_inventory_usd: 300       # 单币种最大库存 $300
+  max_total_inventory_usd: 500 # 总库存上限 $500
+  skew_intensity: 1.5          # 库存偏移强度（高一点，小币种要快速减仓）
 
   # 波动性控制
-  volatility_threshold_pct: 0.005  # 0.5% 价格变动触发 spread 加宽
-  volatility_widen_factor: 2.0     # 波动时 spread 翻倍
+  volatility_threshold_pct: 0.01   # 1% 价格变动触发 spread 加宽（小币种波动大）
+  volatility_widen_factor: 2.5     # 波动时 spread x2.5
 
   # 执行
   refresh_interval_sec: 5      # 每 5 秒刷新报价
   max_open_orders: 20          # 最大挂单数
 
-  # 精度（Gate.io 每个交易对不同，需要根据实际调整）
+  # 精度（从 Gate.io 盘口观察得出）
   price_precision:
-    DOGE_USDT: 5               # $0.00001
-    PEPE_USDT: 10              # 极小价格需要更多位
+    BNKR_USDT: 6               # $0.000511 -> 6位
+    KCT_USDT: 6                # $0.000431 -> 6位
   amount_precision:
-    DOGE_USDT: 0               # 整数
-    PEPE_USDT: 0               # 整数
+    BNKR_USDT: 0               # 整数
+    KCT_USDT: 0                # 整数
 
 risk:
-  max_daily_loss_usd: 100      # 日亏损上限 $100
+  max_daily_loss_usd: 30       # 日亏损上限 $30（小资金保守）
   max_drawdown_pct: 0.05       # 最大回撤 5%
   halt_on_error_count: 5       # 连续 5 次错误暂停
 
