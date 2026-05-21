@@ -78,13 +78,11 @@ class GateClient:
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            body = e.response.text if e.response is not None else ""
             log.error(
-                "Gate.io HTTP error",
-                extra={
-                    "status": e.response.status_code if e.response is not None else None,
-                    "body": e.response.text if e.response is not None else "",
-                    "path": path,
-                },
+                "Gate.io HTTP %s %s: %s",
+                status, path, body[:200],
             )
             raise
         except requests.exceptions.RequestException as e:

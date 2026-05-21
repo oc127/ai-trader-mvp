@@ -93,11 +93,18 @@ class GateMarketMaker:
             coin = pair.split("_")[0]
             amount = balances.get(coin, 0.0)
             state = self.get_state(pair)
-            if amount > 0 and state.inventory == 0:
-                mid = state.mid_price if state.mid_price > 0 else 1.0
+
+            try:
+                book = self._client.get_order_book(pair, limit=1)
+                mid = (float(book["bids"][0][0]) + float(book["asks"][0][0])) / 2
+                state.mid_price = mid
+            except Exception:
+                mid = state.mid_price if state.mid_price > 0 else 0.0
+
+            if amount > 0 and mid > 0:
                 state.inventory = amount
                 state.inventory_usd = amount * mid
-                log.info("Loaded balance for %s: %.4f coins ($%.2f)",
+                log.info("Loaded balance for %s: %.2f coins ($%.2f)",
                          pair, amount, state.inventory_usd)
 
     def seed_inventory(self, seed_usd: float | None = None) -> None:
@@ -201,7 +208,8 @@ class GateMarketMaker:
         if self._max_inventory_usd == 0:
             return 0.0
         ratio = state.inventory_usd / self._max_inventory_usd
-        return ratio * self._skew_intensity
+        skew = ratio * self._skew_intensity
+        return max(-1.0, min(1.0, skew))
 
     def _generate_quotes(
         self, pair: str, mid: float, spread_bps: float, skew: float,
