@@ -193,3 +193,61 @@ class GateClient:
         }
         log.info("Futures close short", extra={"contract": contract, "size": body["size"]})
         return self._request("POST", "/api/v4/futures/usdt/orders", body=body, auth=True)
+
+    # -- Market Making -----------------------------------------------------------
+
+    def get_order_book(self, pair: str, limit: int = 20) -> dict:
+        return self._request(
+            "GET", "/api/v4/spot/order_book",
+            params={"currency_pair": pair, "limit": limit},
+        )
+
+    def spot_limit_buy(self, pair: str, price: float, amount: float) -> dict:
+        body = {
+            "currency_pair": pair,
+            "type": "limit",
+            "side": "buy",
+            "price": str(price),
+            "amount": str(amount),
+        }
+        return self._request("POST", "/api/v4/spot/orders", body=body, auth=True)
+
+    def spot_limit_sell(self, pair: str, price: float, amount: float) -> dict:
+        body = {
+            "currency_pair": pair,
+            "type": "limit",
+            "side": "sell",
+            "price": str(price),
+            "amount": str(amount),
+        }
+        return self._request("POST", "/api/v4/spot/orders", body=body, auth=True)
+
+    def cancel_order(self, pair: str, order_id: str) -> dict:
+        return self._request(
+            "DELETE", f"/api/v4/spot/orders/{order_id}",
+            params={"currency_pair": pair}, auth=True,
+        )
+
+    def cancel_all_orders(self, pair: str) -> list:
+        return self._request(
+            "DELETE", "/api/v4/spot/orders",
+            params={"currency_pair": pair}, auth=True,
+        )
+
+    def list_open_orders(self, pair: str) -> list:
+        return self._request(
+            "GET", "/api/v4/spot/orders",
+            params={"currency_pair": pair, "status": "open"}, auth=True,
+        )
+
+    def get_spot_trades(self, pair: str, limit: int = 50) -> list:
+        return self._request(
+            "GET", "/api/v4/spot/trades",
+            params={"currency_pair": pair, "limit": limit},
+        )
+
+    def get_my_trades(self, pair: str, limit: int = 50) -> list:
+        return self._request(
+            "GET", "/api/v4/spot/my_trades",
+            params={"currency_pair": pair, "limit": limit}, auth=True,
+        )
