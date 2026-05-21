@@ -2,9 +2,9 @@ gate_arb:
   min_rate_8h: 0.0005            # 0.05%/8h minimum to enter (~55% APY)
   exit_rate_8h: -0.0001          # exit when rate drops below -0.01%/8h
   min_volume_24h: 50000000       # $50M minimum 24h volume
-  max_positions: 5               # max simultaneous arb positions
-  per_position_pct: 0.15         # 15% of capital per position
-  max_position_usd: 5000         # hard cap per position
+  max_positions: 3               # max simultaneous arb positions
+  per_position_pct: 0.20         # 20% of capital per position
+  max_position_usd: 250          # hard cap per position ($250 x 3 = $750 max)
   scan_interval_sec: 300         # scan rates every 5 minutes
   tick_interval_sec: 60          # main loop tick every 60 seconds
   rate_history_periods: 3        # need 3 consecutive positive readings to enter
@@ -18,8 +18,8 @@ gate_arb:
     - EVIX
 
 risk:
-  max_total_exposure_usd: 20000  # total capital at risk
-  max_daily_loss_usd: 500        # halt if daily loss exceeds this
+  max_total_exposure_usd: 800    # total capital at risk
+  max_daily_loss_usd: 50         # halt if daily loss exceeds this
   max_slippage_pct: 0.005        # 0.5% max slippage on entry
 
 monitor:
