@@ -122,10 +122,10 @@ def run_bot(client, config: dict, paper: bool) -> None:
                 result = mm.tick(pair)
                 if result["action"] == "refreshed":
                     log.info(
-                        "Tick %s: mid=$%.6f spread=%.1f/%.1f bps inv=$%.2f quotes=%d",
+                        "Tick %s: mid=$%.6f spread=%.1f/%.1f bps coin=$%.2f usdt=$%.2f bids=%d asks=%d",
                         pair, result["mid"], result["spread_bps"],
-                        result["market_spread_bps"], result["inventory_usd"],
-                        result["n_quotes"],
+                        result["market_spread_bps"], result["coin_balance_usd"],
+                        result["usdt_balance"], result["bids"], result["asks"],
                     )
                     error_count = 0
                 elif result["action"] == "error":

@@ -150,8 +150,11 @@ class GateMarketMaker:
 
         placed_bids = 0
         placed_asks = 0
+        min_order_usd = 3.5  # Gate.io minimum is $3, use $3.5 for safety
         for quote in quotes:
             if quote.amount <= 0 or quote.price <= 0:
+                continue
+            if quote.amount * quote.price < min_order_usd:
                 continue
             try:
                 if quote.side == "buy":
