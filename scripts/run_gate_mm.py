@@ -101,6 +101,7 @@ def run_bot(client, config: dict, paper: bool) -> None:
 
     if not paper:
         mm.sync_balances()
+        mm.seed_inventory()
 
     running = True
     last_summary = 0.0

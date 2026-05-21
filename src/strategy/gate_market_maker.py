@@ -100,6 +100,35 @@ class GateMarketMaker:
                 log.info("Loaded balance for %s: %.4f coins ($%.2f)",
                          pair, amount, state.inventory_usd)
 
+    def seed_inventory(self, seed_usd: float | None = None) -> None:
+        """Market buy initial inventory for each pair so we can quote both sides."""
+        amount = seed_usd or self._base_order_usd * 3
+        for pair in self._pairs:
+            state = self.get_state(pair)
+            if state.inventory_usd >= amount:
+                log.info("Already have inventory for %s, skipping seed", pair)
+                continue
+            try:
+                result = self._client.spot_market_buy(pair, amount)
+                log.info("Seeded %s: market bought $%.2f", pair, amount)
+                # Sync actual balance after buy
+                try:
+                    balances = self._client.get_spot_balances()
+                    coin = pair.split("_")[0]
+                    coin_amount = balances.get(coin, 0.0)
+                    book = self._client.get_order_book(pair, limit=1)
+                    mid = float(book["asks"][0][0])
+                    state.inventory = coin_amount
+                    state.inventory_usd = coin_amount * mid
+                    state.mid_price = mid
+                    log.info("Seed balance: %s %.2f coins ($%.2f)",
+                             pair, coin_amount, state.inventory_usd)
+                except Exception:
+                    state.inventory_usd = amount
+                    log.info("Seed estimated: %s ~$%.2f", pair, amount)
+            except Exception:
+                log.warning("Failed to seed inventory for %s", pair)
+
     def tick(self, pair: str) -> dict:
         """Main loop tick for one pair. Returns action taken."""
         state = self.get_state(pair)
