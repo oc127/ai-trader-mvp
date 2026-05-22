@@ -5,9 +5,9 @@ opens spot+short positions (delta neutral), and rotates
 capital to the best opportunities.
 
 Usage:
-    python scripts/run_gate_arb.py
-    python scripts/run_gate_arb.py --paper     # dry run, no real trades
-    python scripts/run_gate_arb.py --scan-only  # just show opportunities
+    python scripts/run_gate_arb.py                # paper mode (default)
+    python scripts/run_gate_arb.py --live          # real trades (requires confirmation)
+    python scripts/run_gate_arb.py --scan-only     # just show opportunities
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.gate_client.rest import GateClient
+from src.gate_client.paper import PaperGateClient
 from src.logger import get_logger, setup_logging
 from src.monitor.alerts import AlertManager
 from src.strategy.gate_funding_arb import GateFundingArbStrategy
@@ -134,7 +135,7 @@ def run_bot(client: GateClient, config: dict, paper: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gate.io Funding Arb Bot")
-    parser.add_argument("--paper", action="store_true", help="Paper trading mode (no real orders)")
+    parser.add_argument("--live", action="store_true", help="LIVE trading (real orders, real money)")
     parser.add_argument("--scan-only", action="store_true", help="Just scan and display opportunities")
     args = parser.parse_args()
 
@@ -153,8 +154,17 @@ def main() -> None:
 
     if args.scan_only:
         scan_only(client, config)
+    elif args.live:
+        print("\n  *** WARNING: LIVE TRADING MODE ***")
+        print("  This will place REAL orders with REAL money on Gate.io.")
+        confirm = input("  Type 'YES' to confirm: ")
+        if confirm.strip() != "YES":
+            print("  Aborted.")
+            sys.exit(0)
+        run_bot(client, config, paper=False)
     else:
-        run_bot(client, config, paper=args.paper)
+        paper_client = PaperGateClient(client)
+        run_bot(paper_client, config, paper=True)
 
 
 if __name__ == "__main__":

@@ -4,9 +4,9 @@ Places tiered limit orders on both sides of the book,
 manages inventory with skew, and widens spread on volatility.
 
 Usage:
-    python scripts/run_gate_mm.py
-    python scripts/run_gate_mm.py --paper     # dry run, log only
-    python scripts/run_gate_mm.py --status     # show current state
+    python scripts/run_gate_mm.py               # paper mode (default)
+    python scripts/run_gate_mm.py --live         # real trades (requires confirmation)
+    python scripts/run_gate_mm.py --status       # show current state
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.gate_client.rest import GateClient
+from src.gate_client.paper import PaperGateClient
 from src.logger import get_logger, setup_logging
 from src.monitor.alerts import AlertManager
 from src.strategy.gate_market_maker import GateMarketMaker
@@ -34,61 +35,6 @@ def load_config() -> dict:
     config_path = Path(__file__).parent.parent / "config" / "gate_mm.yaml"
     with open(config_path) as f:
         return yaml.safe_load(f)
-
-
-class PaperGateClient:
-    """Wraps GateClient, intercepts write calls for paper trading."""
-
-    def __init__(self, real_client: GateClient) -> None:
-        self._client = real_client
-        self._next_id = 1000
-        self._open_orders: dict[str, dict] = {}
-
-    def get_order_book(self, pair: str, limit: int = 20) -> dict:
-        return self._client.get_order_book(pair, limit)
-
-    def get_spot_balances(self) -> dict[str, float]:
-        return self._client.get_spot_balances()
-
-    def spot_limit_buy(self, pair: str, price: float, amount: float) -> dict:
-        oid = str(self._next_id)
-        self._next_id += 1
-        self._open_orders[oid] = {
-            "id": oid, "side": "buy", "pair": pair,
-            "price": price, "amount": amount,
-        }
-        log.info("[PAPER] Limit BUY %s %.4f @ %.6f", pair, amount, price)
-        return {"id": oid}
-
-    def spot_limit_sell(self, pair: str, price: float, amount: float) -> dict:
-        oid = str(self._next_id)
-        self._next_id += 1
-        self._open_orders[oid] = {
-            "id": oid, "side": "sell", "pair": pair,
-            "price": price, "amount": amount,
-        }
-        log.info("[PAPER] Limit SELL %s %.4f @ %.6f", pair, amount, price)
-        return {"id": oid}
-
-    def cancel_order(self, pair: str, order_id: str) -> dict:
-        self._open_orders.pop(order_id, None)
-        return {}
-
-    def cancel_all_orders(self, pair: str) -> list:
-        to_remove = [k for k, v in self._open_orders.items() if v["pair"] == pair]
-        for k in to_remove:
-            del self._open_orders[k]
-        log.info("[PAPER] Cancelled %d orders for %s", len(to_remove), pair)
-        return []
-
-    def list_open_orders(self, pair: str) -> list:
-        return [v for v in self._open_orders.values() if v["pair"] == pair]
-
-    def get_spot_trades(self, pair: str, limit: int = 50) -> list:
-        return self._client.get_spot_trades(pair, limit)
-
-    def get_my_trades(self, pair: str, limit: int = 50) -> list:
-        return []
 
 
 def run_bot(client, config: dict, paper: bool) -> None:
@@ -189,7 +135,7 @@ def show_status(client: GateClient, config: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gate.io Market Maker Bot")
-    parser.add_argument("--paper", action="store_true", help="Paper trading mode")
+    parser.add_argument("--live", action="store_true", help="LIVE trading (real orders, real money)")
     parser.add_argument("--status", action="store_true", help="Show orderbook status")
     args = parser.parse_args()
 
@@ -206,11 +152,17 @@ def main() -> None:
 
     if args.status:
         show_status(client, config)
-    elif args.paper:
+    elif args.live:
+        print("\n  *** WARNING: LIVE TRADING MODE ***")
+        print("  This will place REAL orders with REAL money on Gate.io.")
+        confirm = input("  Type 'YES' to confirm: ")
+        if confirm.strip() != "YES":
+            print("  Aborted.")
+            sys.exit(0)
+        run_bot(client, config, paper=False)
+    else:
         paper_client = PaperGateClient(client)
         run_bot(paper_client, config, paper=True)
-    else:
-        run_bot(client, config, paper=False)
 
 
 if __name__ == "__main__":
