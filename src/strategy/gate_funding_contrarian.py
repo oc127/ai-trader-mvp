@@ -30,6 +30,7 @@ class GateFundingContrarianStrategy:
         self._trailing_stop_pct = cfg.get("trailing_stop_pct", 0.02)
         self._scan_interval = cfg.get("scan_interval_sec", 300)
         self._confirm_periods = cfg.get("rate_confirm_periods", 2)
+        self._max_rate = cfg.get("max_rate_8h", 0.005)
         self._excluded = set(cfg.get("excluded_coins", ["BTC", "ETH"]))
         self._blacklist = set(cfg.get("blacklist", []))
 
@@ -66,6 +67,9 @@ class GateFundingContrarianStrategy:
             volume = float(c.get("trade_size", 0))
             mark = float(c.get("mark_price", 0))
             if volume < self._min_volume or mark <= 0:
+                continue
+
+            if abs(rate) > self._max_rate:
                 continue
 
             direction = None

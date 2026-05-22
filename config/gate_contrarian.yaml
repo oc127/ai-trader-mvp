@@ -16,6 +16,7 @@ contrarian:
   trailing_stop_pct: 0.02         # 2% trailing stop after 4% profit
 
   # --- Filters ---
+  max_rate_8h: 0.005              # 0.5%/8h cap — rates above this are likely crashing coins, skip
   tick_interval_sec: 30           # check positions every 30s
   scan_interval_sec: 300          # scan for new entries every 5 min
   rate_confirm_periods: 2         # need 2 consecutive extreme readings to enter
