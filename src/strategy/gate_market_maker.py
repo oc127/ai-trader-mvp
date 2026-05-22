@@ -60,9 +60,13 @@ class GateMarketMaker:
         self._amount_precision: dict[str, int] = cfg.get("amount_precision", {})
         self._skew_intensity: float = cfg.get("skew_intensity", 1.0)
 
+        self._max_daily_loss_usd: float = config.get("risk", {}).get("max_daily_loss_usd", 30)
+
         self._states: dict[str, MMState] = {}
         self._prev_mids: dict[str, float] = {}
         self._last_refresh: dict[str, float] = {}
+        self._start_value: float | None = None
+        self._halted = False
 
     @property
     def pairs(self) -> list[str]:
@@ -97,6 +101,9 @@ class GateMarketMaker:
 
     def tick(self, pair: str) -> dict:
         """Main loop tick for one pair."""
+        if self._halted:
+            return {"action": "halted", "reason": "daily_loss_limit"}
+
         state = self.get_state(pair)
         now = time.time()
 
@@ -136,6 +143,22 @@ class GateMarketMaker:
         usdt_balance = balances.get("USDT", 0.0)
         state.coin_balance = coin_balance
         state.coin_balance_usd = coin_balance * mid
+
+        # 2b. Check daily loss limit
+        total_value = usdt_balance + sum(
+            balances.get(p.split("_")[0], 0.0) * self.get_state(p).mid_price
+            for p in self._pairs
+            if self.get_state(p).mid_price > 0
+        )
+        if self._start_value is None:
+            self._start_value = total_value
+            log.info("MM start value: $%.2f", total_value)
+        elif self._start_value - total_value > self._max_daily_loss_usd:
+            log.warning("Daily loss limit hit: start=$%.2f now=$%.2f loss=$%.2f",
+                        self._start_value, total_value, self._start_value - total_value)
+            self._halted = True
+            self.cancel_all()
+            return {"action": "halted", "reason": f"loss ${self._start_value - total_value:.2f} exceeds limit ${self._max_daily_loss_usd}"}
 
         # 3. Calculate spread and quotes
         spread_bps = self._calculate_spread(pair, mid, market_spread_bps)

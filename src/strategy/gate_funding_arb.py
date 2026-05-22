@@ -178,6 +178,21 @@ class GateFundingArbStrategy:
             log.info("%sSpot buy %s: $%.2f (%.4f coins)", self._tag, coin, amount_usd, coin_amount)
             log.info("%sShort perp %s: %d contracts", self._tag, coin, perp_size)
         else:
+            # SAFETY: test short first with 1 contract before buying spot
+            try:
+                self._client.futures_open_short(contract_name, 1)
+            except Exception:
+                log.warning("Contract %s not shortable (margin mode?), skipping", coin)
+                self._blacklist.add(coin)
+                return False
+
+            # Close test contract
+            try:
+                self._client.futures_close_short(contract_name, 1)
+            except Exception:
+                pass
+
+            # Now safe to buy spot
             try:
                 self._client.spot_market_buy(spot_pair, amount_usd)
                 log.info("Spot buy filled for %s: $%.2f", coin, amount_usd)
@@ -185,6 +200,7 @@ class GateFundingArbStrategy:
                 log.warning("Spot buy failed for %s", coin)
                 return False
 
+            # Open the real short
             try:
                 self._client.futures_open_short(contract_name, perp_size)
                 log.info("Short perp opened for %s: %d contracts", coin, perp_size)
