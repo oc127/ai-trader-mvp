@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.gate_client.rest import GateClient
 
-KEEP = {"USDT", "ETH", "BTC"}
+KEEP = {"USDT", "ETH", "BTC", "HYPE", "ASTER"}
 
 
 def main() -> None:
