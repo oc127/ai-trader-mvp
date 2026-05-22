@@ -1,0 +1,35 @@
+contrarian:
+  # --- Entry signals ---
+  short_rate_threshold: 0.001     # 0.1%/8h: funding this high → short (longs overcrowded)
+  long_rate_threshold: -0.0005    # -0.05%/8h: funding this negative → long (shorts overcrowded)
+  min_volume_24h: 50000000        # $50M min 24h volume (liquidity filter)
+
+  # --- Position sizing ---
+  leverage: 5                     # 5x leverage
+  position_size_usd: 100          # $100 margin per trade → $500 notional
+  max_positions: 3                # max 3 simultaneous positions
+
+  # --- Exit rules ---
+  stop_loss_pct: 0.03             # 3% stop loss from entry price
+  take_profit_pct: 0.08           # 8% take profit from entry price
+  max_hold_hours: 48              # force close after 48 hours
+  trailing_stop_pct: 0.02         # 2% trailing stop after 4% profit
+
+  # --- Filters ---
+  tick_interval_sec: 30           # check positions every 30s
+  scan_interval_sec: 300          # scan for new entries every 5 min
+  rate_confirm_periods: 2         # need 2 consecutive extreme readings to enter
+  excluded_coins:
+    - BTC                         # too efficient, funding rarely extreme
+    - ETH
+  blacklist: []
+
+risk:
+  max_total_exposure_usd: 500     # total notional exposure cap
+  max_daily_loss_usd: 30          # stop trading if daily loss > $30
+
+monitor:
+  telegram_enabled: true
+  alert_on_entry: true
+  alert_on_exit: true
+  summary_interval_sec: 1800      # summary every 30 min

@@ -99,6 +99,23 @@ class PaperGateClient:
         log.info("%sFutures CLOSE SHORT %s size=%d", TAG, contract, size)
         return {"id": oid}
 
+    def futures_open_long(self, contract: str, size: int) -> dict:
+        oid = self._next_oid()
+        log.info("%sFutures OPEN LONG %s size=%d", TAG, contract, size)
+        return {"id": oid}
+
+    def futures_close_long(self, contract: str, size: int) -> dict:
+        oid = self._next_oid()
+        log.info("%sFutures CLOSE LONG %s size=%d", TAG, contract, size)
+        return {"id": oid}
+
+    def futures_set_leverage(self, contract: str, leverage: int) -> dict:
+        log.info("%sSet leverage %s x%d", TAG, contract, leverage)
+        return {}
+
+    def futures_get_contract(self, contract: str) -> dict:
+        return self._client.futures_get_contract(contract)
+
     # -- Helpers --------------------------------------------------------------
 
     def _next_oid(self) -> str:

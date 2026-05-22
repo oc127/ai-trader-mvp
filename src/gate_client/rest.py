@@ -194,6 +194,38 @@ class GateClient:
         log.info("Futures close short", extra={"contract": contract, "size": body["size"]})
         return self._request("POST", "/api/v4/futures/usdt/orders", body=body, auth=True)
 
+    def futures_open_long(self, contract: str, size: int) -> dict:
+        body = {
+            "contract": contract,
+            "size": abs(size),
+            "price": "0",
+            "tif": "ioc",
+        }
+        log.info("Futures open long", extra={"contract": contract, "size": body["size"]})
+        return self._request("POST", "/api/v4/futures/usdt/orders", body=body, auth=True)
+
+    def futures_close_long(self, contract: str, size: int) -> dict:
+        body = {
+            "contract": contract,
+            "size": -abs(size),
+            "price": "0",
+            "tif": "ioc",
+            "close": True,
+        }
+        log.info("Futures close long", extra={"contract": contract, "size": body["size"]})
+        return self._request("POST", "/api/v4/futures/usdt/orders", body=body, auth=True)
+
+    def futures_set_leverage(self, contract: str, leverage: int) -> dict:
+        return self._request(
+            "POST",
+            f"/api/v4/futures/usdt/positions/{contract}/leverage",
+            params={"leverage": str(leverage)},
+            auth=True,
+        )
+
+    def futures_get_contract(self, contract: str) -> dict:
+        return self._request("GET", f"/api/v4/futures/usdt/contracts/{contract}")
+
     # -- Market Making -----------------------------------------------------------
 
     def get_order_book(self, pair: str, limit: int = 20) -> dict:
