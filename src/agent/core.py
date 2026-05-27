@@ -11,6 +11,7 @@ from __future__ import annotations
 import anthropic
 
 from src.agent.memory import Memory
+from src.agent.skills.rich import RICH_SKILL_DEFINITIONS, RichSkills
 from src.agent.skills.serenity import SERENITY_SKILL_DEFINITIONS, SerenitySkills
 from src.agent.tools import TOOL_DEFINITIONS, TradingTools
 from src.logger import get_logger
@@ -28,13 +29,21 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 - 设置杠杆
 - 查看资金费率
 
-## 研究能力（Serenity 卡脖子框架）
+## 研究能力（Serenity 卡脖子框架 — 基本面派）
 - 逆向供应链映射：从终端产品追溯到卡脖子环节
 - 卡脖子公司识别：找出市占率>50%、不可替代的公司
 - 地缘政治→供应链映射：将地缘事件转化为具体投资机会
 - 魔鬼代言人：系统性挑战投资论点
 - 跨地域扫描：美/台/欧/日/韩/中 全市场公司筛选
 - 论点评分卡：卡脖子强度、非共识度、时间差、催化剂四维打分
+
+## 技术分析能力（RICH/TradingWarz 框架 — 技术派）
+- Fibonacci 分析：黄金分割回调/扩展位，Golden Zone (0.618) 入场
+- Drill Down 多周期共振：月→周→日→4H 层层递进
+- 风险收益比铁律：< 2:1 不做，用结构位设止损
+- LEAPS 期权金字塔：长期期权低成本建仓+分层加仓
+- Theta 收割：高IV卖期权+Fib支撑位双重安全边际
+- RICH 综合评分：Fib位置/共振度/风险收益比/期权可行性
 
 ## 思考框架（OODA）
 每次收到指令，按这个顺序思考：
@@ -64,8 +73,10 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 {memory_context}"""
 
 
-SKILL_NAMES = {d["name"] for d in SERENITY_SKILL_DEFINITIONS}
-ALL_TOOL_DEFINITIONS = TOOL_DEFINITIONS + SERENITY_SKILL_DEFINITIONS
+_SERENITY_NAMES = {d["name"] for d in SERENITY_SKILL_DEFINITIONS}
+_RICH_NAMES = {d["name"] for d in RICH_SKILL_DEFINITIONS}
+SKILL_NAMES = _SERENITY_NAMES | _RICH_NAMES
+ALL_TOOL_DEFINITIONS = TOOL_DEFINITIONS + SERENITY_SKILL_DEFINITIONS + RICH_SKILL_DEFINITIONS
 
 
 class TradingAgent:
@@ -77,7 +88,8 @@ class TradingAgent:
     ) -> None:
         self._client = anthropic.Anthropic()
         self._tools = tools
-        self._skills = SerenitySkills(model=model)
+        self._serenity = SerenitySkills(model=model)
+        self._rich = RichSkills(model=model)
         self._memory = memory or Memory()
         self._model = model
         self._history: list[dict] = []
@@ -105,8 +117,10 @@ class TradingAgent:
             for block in assistant_content:
                 if block.type == "tool_use":
                     log.info("Tool call: %s(%s)", block.name, block.input)
-                    if block.name in SKILL_NAMES:
-                        result = self._skills.execute(block.name, block.input)
+                    if block.name in _SERENITY_NAMES:
+                        result = self._serenity.execute(block.name, block.input)
+                    elif block.name in _RICH_NAMES:
+                        result = self._rich.execute(block.name, block.input)
                     else:
                         result = self._tools.execute(block.name, block.input)
                     tool_results.append({
