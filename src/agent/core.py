@@ -11,14 +11,15 @@ from __future__ import annotations
 import anthropic
 
 from src.agent.memory import Memory
+from src.agent.skills.serenity import SERENITY_SKILL_DEFINITIONS, SerenitySkills
 from src.agent.tools import TOOL_DEFINITIONS, TradingTools
 from src.logger import get_logger
 
 log = get_logger(__name__)
 
-SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyperliquid 交易所。
+SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyperliquid 交易所。你同时具备深度产业链研究能力。
 
-## 能力
+## 交易能力
 - 查看账户余额和持仓
 - 查看任何币的价格和订单簿
 - 扫描适合做市的交易对
@@ -27,12 +28,28 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 - 设置杠杆
 - 查看资金费率
 
+## 研究能力（Serenity 卡脖子框架）
+- 逆向供应链映射：从终端产品追溯到卡脖子环节
+- 卡脖子公司识别：找出市占率>50%、不可替代的公司
+- 地缘政治→供应链映射：将地缘事件转化为具体投资机会
+- 魔鬼代言人：系统性挑战投资论点
+- 跨地域扫描：美/台/欧/日/韩/中 全市场公司筛选
+- 论点评分卡：卡脖子强度、非共识度、时间差、催化剂四维打分
+
 ## 思考框架（OODA）
 每次收到指令，按这个顺序思考：
 1. Observe（观察）：当前市场状态、账户状态是什么？
 2. Orient（判断）：这个操作的风险和机会是什么？
 3. Decide（决策）：具体执行什么操作？
 4. Act（执行）：调用工具执行，报告结果
+
+## 研究框架（Serenity 方法论）
+当用户询问产业/供应链/投资论点时：
+1. 逆向映射：从终端产品向上追溯，找到瓶颈
+2. 卡脖子评估：市占率、替代成本、技术壁垒
+3. 非共识检验：这是共识还是独到洞察？
+4. 时间差定位：市场定价了多少？催化剂在哪？
+5. 魔鬼代言：主动挑战自己的结论
 
 ## 规则
 - 用户资金量小，谨慎操作
@@ -41,9 +58,14 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 - 用中文回复，简洁不废话
 - 指令不清楚时先问清楚
 - 报价用 $ 符号
+- 研究分析要有数据支撑，标注信息来源和确信度
 
 ## 交易记忆
 {memory_context}"""
+
+
+SKILL_NAMES = {d["name"] for d in SERENITY_SKILL_DEFINITIONS}
+ALL_TOOL_DEFINITIONS = TOOL_DEFINITIONS + SERENITY_SKILL_DEFINITIONS
 
 
 class TradingAgent:
@@ -55,6 +77,7 @@ class TradingAgent:
     ) -> None:
         self._client = anthropic.Anthropic()
         self._tools = tools
+        self._skills = SerenitySkills(model=model)
         self._memory = memory or Memory()
         self._model = model
         self._history: list[dict] = []
@@ -70,7 +93,7 @@ class TradingAgent:
             model=self._model,
             max_tokens=4096,
             system=system,
-            tools=TOOL_DEFINITIONS,
+            tools=ALL_TOOL_DEFINITIONS,
             messages=self._history,
         )
 
@@ -82,7 +105,10 @@ class TradingAgent:
             for block in assistant_content:
                 if block.type == "tool_use":
                     log.info("Tool call: %s(%s)", block.name, block.input)
-                    result = self._tools.execute(block.name, block.input)
+                    if block.name in SKILL_NAMES:
+                        result = self._skills.execute(block.name, block.input)
+                    else:
+                        result = self._tools.execute(block.name, block.input)
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -101,7 +127,7 @@ class TradingAgent:
                 model=self._model,
                 max_tokens=4096,
                 system=system,
-                tools=TOOL_DEFINITIONS,
+                tools=ALL_TOOL_DEFINITIONS,
                 messages=self._history,
             )
 
