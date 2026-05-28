@@ -12,6 +12,8 @@ def test_all_skills_have_definitions():
     expected = {
         "map_supply_chain",
         "find_chokepoints",
+        "design_in_detective",
+        "capital_catalyst_stack",
         "geopolitical_impact",
         "challenge_thesis",
         "cross_market_scan",
@@ -50,6 +52,24 @@ def test_execute_unknown_skill():
     assert "Unknown skill" in result
 
 
+def test_prompts_contain_serenity_philosophy():
+    assert "被迫购买" in _SKILL_PROMPTS["map_supply_chain"]
+    assert "物理瓶颈" in _SKILL_PROMPTS["map_supply_chain"]
+    assert "最窄的口子" in _SKILL_PROMPTS["find_chokepoints"]
+    assert "Kingmaker" in _SKILL_PROMPTS["find_chokepoints"]
+    assert "量产倒计时" in _SKILL_PROMPTS["design_in_detective"]
+    assert "官方确认前" in _SKILL_PROMPTS["design_in_detective"]
+    assert "指数纳入" in _SKILL_PROMPTS["capital_catalyst_stack"]
+    assert "双重上市" in _SKILL_PROMPTS["capital_catalyst_stack"]
+    assert "LITE playbook" in _SKILL_PROMPTS["capital_catalyst_stack"]
+    assert "信息分层" in _SKILL_PROMPTS["challenge_thesis"]
+    assert "公开确认" in _SKILL_PROMPTS["challenge_thesis"]
+    assert "地理套利" in _SKILL_PROMPTS["cross_market_scan"]
+    assert "量产信号" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "资本催化" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "风险诚实度" in _SKILL_PROMPTS["thesis_scorecard"]
+
+
 @patch("src.agent.skills.serenity.anthropic.Anthropic")
 def test_map_supply_chain_calls_claude(mock_anthropic_cls):
     mock_client = MagicMock()
@@ -59,17 +79,56 @@ def test_map_supply_chain_calls_claude(mock_anthropic_cls):
     mock_anthropic_cls.return_value = mock_client
 
     skills = SerenitySkills()
-    result = skills.execute("map_supply_chain", {"product": "AI服务器"})
+    result = skills.execute("map_supply_chain", {"product": "CPO光互连"})
 
     assert result == "supply chain analysis result"
     mock_client.messages.create.assert_called_once()
     call_kwargs = mock_client.messages.create.call_args[1]
-    assert "AI服务器" in call_kwargs["system"]
-    assert call_kwargs["max_tokens"] == 4096
+    assert "CPO光互连" in call_kwargs["system"]
 
 
 @patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_challenge_thesis_calls_claude(mock_anthropic_cls):
+def test_design_in_detective_calls_claude(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="pre-revenue signals")]
+    mock_client.messages.create.return_value = mock_response
+    mock_anthropic_cls.return_value = mock_client
+
+    skills = SerenitySkills()
+    result = skills.execute(
+        "design_in_detective",
+        {"company": "SIVE", "focus": "CW DFB lasers"},
+    )
+
+    assert result == "pre-revenue signals"
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert "SIVE" in call_kwargs["system"]
+    assert "CW DFB lasers" in call_kwargs["system"]
+
+
+@patch("src.agent.skills.serenity.anthropic.Anthropic")
+def test_capital_catalyst_stack_calls_claude(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="catalyst analysis")]
+    mock_client.messages.create.return_value = mock_response
+    mock_anthropic_cls.return_value = mock_client
+
+    skills = SerenitySkills()
+    result = skills.execute(
+        "capital_catalyst_stack",
+        {"company": "Sivers", "current_listing": "OMX Stockholm"},
+    )
+
+    assert result == "catalyst analysis"
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert "Sivers" in call_kwargs["system"]
+    assert "OMX Stockholm" in call_kwargs["system"]
+
+
+@patch("src.agent.skills.serenity.anthropic.Anthropic")
+def test_challenge_thesis_has_info_layering(mock_anthropic_cls):
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text="counter arguments")]
@@ -79,17 +138,17 @@ def test_challenge_thesis_calls_claude(mock_anthropic_cls):
     skills = SerenitySkills()
     result = skills.execute(
         "challenge_thesis",
-        {"thesis": "ASML不可替代", "position": "long"},
+        {"thesis": "SIVE是CPO kingmaker", "position": "long"},
     )
 
     assert result == "counter arguments"
     call_kwargs = mock_client.messages.create.call_args[1]
-    assert "ASML不可替代" in call_kwargs["system"]
-    assert "看多" in call_kwargs["system"]
+    assert "信息分层" in call_kwargs["system"]
+    assert "公开确认" in call_kwargs["system"]
 
 
 @patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_thesis_scorecard_default_timeframe(mock_anthropic_cls):
+def test_thesis_scorecard_has_six_dimensions(mock_anthropic_cls):
     mock_client = MagicMock()
     mock_response = MagicMock()
     mock_response.content = [MagicMock(text="scorecard")]
@@ -99,12 +158,15 @@ def test_thesis_scorecard_default_timeframe(mock_anthropic_cls):
     skills = SerenitySkills()
     result = skills.execute(
         "thesis_scorecard",
-        {"company": "TSM", "thesis": "先进制程垄断"},
+        {"company": "SIVE", "thesis": "激光chokepoint"},
     )
 
     assert result == "scorecard"
     call_kwargs = mock_client.messages.create.call_args[1]
-    assert "中期" in call_kwargs["system"]
+    assert "量产信号" in call_kwargs["system"]
+    assert "资本催化" in call_kwargs["system"]
+    assert "风险诚实度" in call_kwargs["system"]
+    assert "25%" in call_kwargs["system"]
 
 
 @patch("src.agent.skills.serenity.anthropic.Anthropic")
@@ -127,7 +189,23 @@ def test_geopolitical_impact_with_chains(mock_anthropic_cls):
     assert result == "impact analysis"
     call_kwargs = mock_client.messages.create.call_args[1]
     assert "AI芯片" in call_kwargs["system"]
-    assert "先进封装" in call_kwargs["system"]
+
+
+@patch("src.agent.skills.serenity.anthropic.Anthropic")
+def test_cross_market_scan_has_geographic_arbitrage(mock_anthropic_cls):
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="scan results")]
+    mock_client.messages.create.return_value = mock_response
+    mock_anthropic_cls.return_value = mock_client
+
+    skills = SerenitySkills()
+    result = skills.execute("cross_market_scan", {"theme": "CPO激光源"})
+
+    assert result == "scan results"
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert "地理套利" in call_kwargs["system"]
+    assert "隐形冠军" in call_kwargs["system"]
 
 
 def test_no_name_collisions_with_trading_tools():
@@ -137,5 +215,5 @@ def test_no_name_collisions_with_trading_tools():
         "get_open_orders", "set_leverage", "get_funding_rates",
     }
     skill_names = {d["name"] for d in SERENITY_SKILL_DEFINITIONS}
-    assert len(skill_names) == 6
+    assert len(skill_names) == 8
     assert skill_names.isdisjoint(trading_tool_names)
