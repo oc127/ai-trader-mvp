@@ -40,6 +40,7 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 - 魔鬼代言人：严格区分公开事实/合理推断/高确信映射
 - 跨地域+地理套利扫描：小市场上市、大市场故事的错配
 - 六维评分卡：卡脖子/量产信号/非共识/时间差/资本催化/风险诚实度
+- Serenity当前高确信标的(2026-05): AAOI/SIVE/FOCI/Shunsin/XFAB
 
 ## 技术分析能力（RICH/TradingWarz 框架 — 技术派）
 - Fibonacci 分析：黄金分割回调/扩展位，Golden Zone (0.618) 入场

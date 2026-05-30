@@ -20,6 +20,14 @@ Serenity's question sequence:
 4. Is the market still pricing based on old financials?
 5. Will capital flows (index, listing, M&A) reprice the mismatch?
 
+Serenity's current high-conviction portfolio (2026-05):
+- AAOI: US onshore laser + optical module, $471M/mo revenue by 2027
+- SIVE: CW DFB laser, pipeline +77%, photonics 60% gross margin
+- FOCI: FAU (Fiber Array Unit) for NVIDIA/TSMC, COUPE chokepoint, ~$2.8B mcap
+- Shunsin: CPO packaging/testing, NVIDIA orders via subsidiaries, hidden
+- XFAB: Silicon photonics foundry, EU Chips Act 2.0 beneficiary
+- SiC/GaN foundries: NVIDIA 800V DC data center power architecture
+
 Each skill makes a focused Claude API sub-call with a specialized prompt.
 """
 
@@ -196,6 +204,12 @@ _SKILL_PROMPTS = {
 重要信号源：NVIDIA 的投资行为是供应链瓶颈的领先指标（6-18个月提前量）。
 NVIDIA 投了谁、跟谁合作、capex 往哪个方向走——顺着这条线找上游卡脖子。
 
+关键架构迁移方向（2026）：
+- CPO（共封装光学）→ 激光器(SIVE/AAOI)、FAU光纤阵列(FOCI)、封装测试(Shunsin)
+- COUPE 架构 → NVIDIA 下一代光互连，FAU 是关键瓶颈环节
+- 800V DC 数据中心电力架构 → SiC/GaN 晶圆代工受益
+- 硅光子 → XFAB 等欧洲代工厂，EU Chips Act 2.0
+
 任务：为 "{product}" 绘制架构迁移→物理瓶颈地图。
 
 ## 分析框架
@@ -260,6 +274,9 @@ Serenity 用"功能性垄断"来分类他最高确信的持仓。判断标准：
 - 类比"霍尔木兹海峡"：全球20%石油经过那里，绕不过去
 - 例：AXTI 控 InP 衬底 = 光子产业链的霍尔木兹海峡
 - 例：TOWA 控 HBM4 压缩成型，MSSCorp 控 CPO 检测
+- 例：FOCI 控 FAU 光纤阵列单元 = COUPE 架构瓶颈（NVIDIA+TSMC 供应商）
+- 例：Shunsin 控 CPO 封装测试 = NVIDIA 订单通过子公司签，市场未充分认知
+- 例：AAOI 美国本土激光器+光模块 = 地缘安全溢价（全美制造链）
 对每个候选公司判断：它是功能性垄断，还是只是寡头之一？差别巨大。
 
 区域筛选: {region}
@@ -508,6 +525,14 @@ Serenity 的发现：很多卡脖子公司在小市场上市（瑞典、台湾�
 - 📊 **机构覆盖缺口**：卖方覆盖少、外资持股低的标的
 - 🔗 **产业链上游**：不要只看最终产品公司，重点看上游零部件/材料/设备
 
+## Serenity 当前高确信持仓参考（2026-05）
+- AAOI (NASDAQ) — 美国本土激光器+光模块，2027月营收预估$471M
+- SIVE (OMX) — CW DFB激光器，pipeline +77%，光子业务60%毛利
+- FOCI (TWSE) — FAU光纤阵列，NVIDIA/TSMC供应商，COUPE架构瓶颈，~$28亿市值
+- Shunsin (TWSE) — CPO封装测试，NVIDIA子公司订单，市场未充分反映
+- XFAB (Euronext) — 硅光子代工，欧洲芯片法案2.0受益者
+用这些作为校准参照——你扫描出的标的应该跟这些处于同一条供应链或相邻瓶颈。
+
 最后给出"Serenity Top Picks"：不按市值排序，按"卡脖子强度 × 非共识度 × 地理套利"排序。""",
 
     "thesis_scorecard": """你是 Serenity，用你完整的卡脖子投资框架给标的打分。
@@ -576,10 +601,11 @@ Serenity 的发现：很多卡脖子公司在小市场上市（瑞典、台湾�
 
 ## Serenity 分类
 将标的归入 Serenity 的赛道分类：
-- 📡 Photonics chokepoint（光子卡脖子）
+- 📡 Photonics chokepoint（光子卡脖子）— SIVE, AAOI, FOCI, Shunsin
 - 🧠 Memory rotation（存储轮动）
 - ☁️ Neocloud（新型云计算）
-- ⚡ Macro / energy（宏观/能源）
+- ⚡ Power / SiC-GaN（电力架构）— 800V DC 数据中心
+- 🏭 Foundry / packaging（代工/封装）— XFAB, Shunsin
 - ⚠️ Flagged risk（已标注风险）
 
 ## 最终判断
