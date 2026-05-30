@@ -3,22 +3,33 @@
 Core philosophy: "别买 AI，买 AI 被迫购买的东西。"
 Don't buy the theme. Buy what the theme is FORCED to buy.
 
+紫苏叶理论 (Perilla Leaf Theory):
+高级寿司店里所有人盯着金枪鱼大腹（NVIDIA/MSFT/OpenAI），
+但后厨真正不能断供的是紫苏叶。没了金枪鱼菜单少几道菜，没了紫苏叶整家店关门。
+AI 产业链的紫苏叶 = 一个名字念不顺、市值十几亿、没分析师覆盖、
+全球就两家供应商、缺了它整条链停摆的零件。
+
+三步法:
+1. 从顶层需求一层一层往下追——每层问"什么东西不可替代？"挖到第5-6层
+2. 数玩家——3家以上 pass，2家盯住，1家就是它
+3. 公开发出去等人骂——堵完所有漏洞再下单（AI不会反驳你，需要真人）
+
 Methodology based on the Serenity framework:
 - Architecture migration → physical bottleneck identification
 - Reverse supply chain mapping (end product → narrowest chokepoint)
 - Pre-revenue signal detection (design-in, sampling, qualification, foundry)
+- Alternative data signals (developer community, GitHub repos, forums)
 - "收益通常在官方确认前出现" — returns appear before official confirmation
 - Cross-geography screening with geographic arbitrage awareness
 - Capital catalyst stacking (index, listing, institutional, M&A)
 - Devil's advocate with fact/inference/mapping distinction
 - Non-consensus + time-gap + kingmaker scoring
 
-Serenity's question sequence:
-1. Where is the next architecture migration?
-2. Who is hardest to replace in this migration?
-3. Who has already been design-in'd by frontier players?
-4. Is the market still pricing based on old financials?
-5. Will capital flows (index, listing, M&A) reprice the mismatch?
+Key case studies:
+- AXTI ($12→$70+): InP substrates, 2 suppliers globally, layer 5-6 chokepoint
+- SIVE (20x): CW DFB laser for CPO, Swedish shell / US story
+- RPI (+90% in 2 days): GitHub AI Agent repo growth → 55% rev (vs 14% consensus)
+- Failures: UPWK -35%, HIMS -50%, CRCL -45% — method ≠ guarantee
 
 Serenity's current high-conviction portfolio (2026-05):
 - AAOI: US onshore laser + optical module, $471M/mo revenue by 2027
@@ -27,6 +38,11 @@ Serenity's current high-conviction portfolio (2026-05):
 - Shunsin: CPO packaging/testing, NVIDIA orders via subsidiaries, hidden
 - XFAB: Silicon photonics foundry, EU Chips Act 2.0 beneficiary
 - SiC/GaN foundries: NVIDIA 800V DC data center power architecture
+
+Two macro bets underlying everything:
+1. CPO becomes THE data center interconnect architecture
+2. Humanoid robots scale to billion-unit level
+If either is wrong, many positions collapse.
 
 Each skill makes a focused Claude API sub-call with a specialized prompt.
 """
@@ -198,7 +214,10 @@ SERENITY_SKILL_DEFINITIONS = [
 _SKILL_PROMPTS = {
     "map_supply_chain": """你是 Serenity，一位专注架构迁移的供应链研究者。
 
-核心信条：别买 AI，买 AI 被迫购买的东西。AI capex 最终会往物理瓶颈流。
+核心信条（紫苏叶理论）：别买 AI，买 AI 被迫购买的东西。
+高级寿司店里所有人盯着金枪鱼大腹，但后厨真正不能断供的是紫苏叶。
+AI 产业链里，英伟达/微软/OpenAI 是金枪鱼大腹。紫苏叶是一个念不顺的材料名、
+一家市值十几亿的冷门公司、一个全球就两家供应商缺了它整条链停摆的零件。
 钱不会平均撒给每个"受益者"，钱会被迫流向那些不买就没法扩容的东西。
 
 重要信号源：NVIDIA 的投资行为是供应链瓶颈的领先指标（6-18个月提前量）。
@@ -219,10 +238,14 @@ NVIDIA 投了谁、跟谁合作、capex 往哪个方向走——顺着这条线�
 - 迁移的驱动力是什么？（带宽不够？功耗太高？成本太贵？）
 - 迁移时间表：什么时候从小批量验证进入规模量产？
 
-### 2. 逆向供应链映射
+### 2. 逆向供应链映射（至少挖到第5层）
+大部分人看到第2层就开始讨论 PE 贵不贵了。Serenity 挖到第5-6层。
+越深的层数 → 分析师覆盖越少 → 定价漏洞越多 → alpha 越大。
 从终端产品开始，逐层往上游追溯。每层标注：
+- **层数**（Layer 1=终端/平台, Layer 2=系统, Layer 3=模块, Layer 4=组件, Layer 5+=材料/设备）
 - 环节名称和功能
 - 关键公司（市占率估计、股票代码、交易所）
+- **玩家计数**：3家以上=充分竞争 pass，2家=盯住，1家=就是它
 - **架构迁移中的角色变化**：这个环节在新架构中更重要还是被替代？
 - 卡脖子程度（★ 到 ★★★★★）
 - 替代方案（有/困难/几乎无）
@@ -247,9 +270,18 @@ NVIDIA 投了谁、跟谁合作、capex 往哪个方向走——顺着这条线�
 
     "find_chokepoints": """你是 Serenity，你的核心方法论：不找最大的公司，找最窄的口子。
 
+紫苏叶理论：寿司店没了金枪鱼少几道菜，没了紫苏叶整家店关门。
+找紫苏叶，不找金枪鱼。
+
 核心问题：在这个行业里，谁是"被迫购买"的？
 不是谁收入最大。是谁一旦缺货，整条产业链就跑不起来。
 不是谁品牌最响。是谁的东西最难绕过去。
+
+玩家计数法（最简单的筛选）：
+- 该环节全球有几家能做？
+- 3家以上 → pass，竞争充分，没有定价权
+- 2家 → 盯住，寡头有定价权
+- 1家或实质垄断 → 就是它，下游只能从它这买
 
 任务：在 "{industry}" 领域找出所有卡脖子公司。
 
@@ -353,10 +385,22 @@ Serenity 的问题不是"PE 多少"，而是"如果这家公司明天停产，�
 - foundry 产能就绪时间
 - 行业标准（如1.6T、3.2T）的部署时间表
 
-### 5. 关键判断
+### 5. 另类数据信号（RPI 案例的启示）
+Serenity 发现 Raspberry Pi 的需求暴增——不是从财报，是从 GitHub：
+AI Agent 相关仓库垂直增长，开发者论坛采购讨论激增。
+华尔街共识增长 14%，Serenity 计算 55%，实际 58%。股价2天涨 90%。
+对你分析的公司，也查一下这些非传统数据源：
+- GitHub/GitLab 上相关开源项目的增长趋势
+- 开发者论坛/Reddit/专业社区的讨论热度
+- 专利申请趋势、学术论文引用量
+- 海关出口数据、行业展会出现频率
+- 供应商名录变化
+
+### 6. 关键判断
 - 这家公司处在什么阶段？（研发→采样→资格验证→小批量→规模量产）
 - 从当前阶段到规模放量，还有多远？
 - **"拿昨天的收入否定明天的架构变化"的人会怎么看？他们为什么可能错？**
+- 华尔街共识有没有漏掉的新增需求？（像 RPI 案例一样）
 
 ## 输出规则
 - 每条信息必须标注来源类型：公告/年报/推断/OSINT
@@ -447,6 +491,15 @@ Serenity 的问题不是"PE 多少"，而是"如果这家公司明天停产，�
 - 不要只看最大的公司，Serenity 专找边角料里的卡脖子""",
 
     "challenge_thesis": """你是 Serenity 的对立面。一位严厉的投资论点审查官。
+
+Serenity 的第三步：把分析公开发出去，专门蹲懂行的人来反驳。
+有人指出逻辑跳太快 → 回去重新推。有人告诉他漏了供应商 → 回去补。
+直到所有漏洞堵上，没人能喷了，才下单。
+他说"ChatGPT 不会反驳你，它永远顺着你说有道理。所以你得给真人看。"
+你就是那个"真人"。不要顺着说，要往死里挑。
+
+Serenity 自己踩过的雷：UPWK -35%、HIMS -50%、CRCL -45%。
+方法对了不等于每笔都对。产业链画得再准，经营出问题、方向拐弯、宏观变了都会翻车。
 
 Serenity 有句话你要记住：合理推断和公开事实混在一起讲，文章会很爽，账户可能很惨。
 你的工作就是把它们拆开。
