@@ -32,12 +32,23 @@ Key case studies:
 - Failures: UPWK -35%, HIMS -50%, CRCL -45% — method ≠ guarantee
 
 Serenity's current high-conviction portfolio (2026-05):
-- AAOI: US onshore laser + optical module, $471M/mo revenue by 2027
-- SIVE: CW DFB laser, pipeline +77%, photonics 60% gross margin
-- FOCI: FAU (Fiber Array Unit) for NVIDIA/TSMC, COUPE chokepoint, ~$2.8B mcap
-- Shunsin: CPO packaging/testing, NVIDIA orders via subsidiaries, hidden
-- XFAB: Silicon photonics foundry, EU Chips Act 2.0 beneficiary
+- AAOI ($12B mcap): US vertical integration laser→assembly, $471M/mo rev by 2027H1
+  TAM exponential expansion from 2028. Still undervalued vs forward revenue.
+- SIVE ($2B mcap): CW DFB laser, pipeline +77% in single quarter (~$799M),
+  photonics 60% gross margin. Revenue growth + margin expansion simultaneously.
+- FOCI ($2.8B mcap): NVIDIA/TSMC FAU supplier, COUPE bottleneck.
+  Passive component + FAU BOM share explosive growth toward 2028.
+  H1 2026 is slightly early timing = entry window NOW.
+- Shunsin ($2B mcap): Foxconn gets CPO/photonics orders from NVIDIA,
+  but packaging/testing happens at Shunsin. Key contracts signed under
+  SUBSIDIARY names → algorithms/investors can't track = information asymmetry alive.
+- XFAB ($1.5B mcap): Silicon photonics foundry, EU Chips Act 2.0.
+  Low PBR + government subsidies cover capex risk → downside limited, upside free.
 - SiC/GaN foundries: NVIDIA 800V DC data center power architecture
+
+Portfolio construction: each stock holds a DIFFERENT bottleneck position in the
+supply chain — no duplicate exposure = natural diversification.
+Alpha sources: timing gap (FOCI is early) + info asymmetry (Shunsin subsidiaries).
 
 Two macro bets underlying everything:
 1. CPO becomes THE data center interconnect architecture
@@ -552,6 +563,13 @@ Serenity 有句话你要记住：合理推断和公开事实混在一起讲，�
 Serenity 的发现：很多卡脖子公司在小市场上市（瑞典、台湾、日本中小盘），
 但它们的故事属于大市场（美国AI叙事、全球半导体）。
 "瑞典壳，美国故事，美国钱。" 这种错配就是机会。
+
+Serenity 的 alpha 来源（两种间隙）：
+1. **时间差**：FOCI 这类标的 H1 2026 稍早，FAU BOM share 2028 才爆发 = 现在是入场窗口
+2. **信息差**：Shunsin 这类标的合同通过子公司签，算法跟踪不到 = 信息不对称还活着
+
+组合构建原则：每个标的占供应链不同瓶颈位，无重复敞口 = 天然分散化。
+不是买一堆"AI概念股"，而是在同一条供应链上选不同层的窄口。
 
 任务：围绕 "{theme}" 主题，扫描全球上市公司。
 
