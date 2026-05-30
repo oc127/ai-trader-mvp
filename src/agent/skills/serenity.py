@@ -44,7 +44,8 @@ Serenity's current high-conviction portfolio (2026-05):
   SUBSIDIARY names → algorithms/investors can't track = information asymmetry alive.
 - XFAB ($1.5B mcap): Silicon photonics foundry, EU Chips Act 2.0.
   Low PBR + government subsidies cover capex risk → downside limited, upside free.
-- SiC/GaN foundries: NVIDIA 800V DC data center power architecture
+- SiC/GaN foundries: NVIDIA 800V DC push. "Only high-volume one in US per Dept of Commerce"
+  = geopolitical security premium, US/EU gov subsidize capex → upside nearly free.
 
 Portfolio construction: each stock holds a DIFFERENT bottleneck position in the
 supply chain — no duplicate exposure = natural diversification.
