@@ -13,6 +13,7 @@ import anthropic
 from src.agent.memory import Memory
 from src.agent.skills.rich import RICH_SKILL_DEFINITIONS, RichSkills
 from src.agent.skills.serenity import SERENITY_SKILL_DEFINITIONS, SerenitySkills
+from src.agent.skills.unified import UNIFIED_SKILL_DEFINITIONS, UnifiedSkills
 from src.agent.tools import TOOL_DEFINITIONS, TradingTools
 from src.logger import get_logger
 
@@ -48,6 +49,17 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 - Theta 收割：高IV卖期权+Fib支撑位双重安全边际
 - RICH 综合评分：Fib位置/共振度/风险收益比/期权可行性
 
+## 统一决策系统（Serenity × RICH 管线）
+- full_analysis: 一键跑完两套系统 — Serenity选股评分 → RICH技术评分 → 四象限综合决策
+- entry_plan: 从标的到可执行交易计划 — Drill Down → Fib → R:R → 期权策略
+- position_check: 双镜头持仓审查 — 论点还成立吗？技术位该加还是该减？
+
+决策逻辑：
+- Serenity说值得 + RICH说好时机 = 🟢 全力出击
+- Serenity说值得 + RICH说不是时候 = 🟡 建观察仓，等位置
+- Serenity说不值得 + RICH说好时机 = 🟡 纯技术交易，轻仓快进快出
+- Serenity说不值得 + RICH说不是时候 = 🔴 不碰
+
 ## 思考框架（OODA）
 每次收到指令，按这个顺序思考：
 1. Observe（观察）：当前市场状态、账户状态是什么？
@@ -79,8 +91,14 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 
 _SERENITY_NAMES = {d["name"] for d in SERENITY_SKILL_DEFINITIONS}
 _RICH_NAMES = {d["name"] for d in RICH_SKILL_DEFINITIONS}
-SKILL_NAMES = _SERENITY_NAMES | _RICH_NAMES
-ALL_TOOL_DEFINITIONS = TOOL_DEFINITIONS + SERENITY_SKILL_DEFINITIONS + RICH_SKILL_DEFINITIONS
+_UNIFIED_NAMES = {d["name"] for d in UNIFIED_SKILL_DEFINITIONS}
+SKILL_NAMES = _SERENITY_NAMES | _RICH_NAMES | _UNIFIED_NAMES
+ALL_TOOL_DEFINITIONS = (
+    TOOL_DEFINITIONS
+    + SERENITY_SKILL_DEFINITIONS
+    + RICH_SKILL_DEFINITIONS
+    + UNIFIED_SKILL_DEFINITIONS
+)
 
 
 class TradingAgent:
@@ -94,6 +112,7 @@ class TradingAgent:
         self._tools = tools
         self._serenity = SerenitySkills(model=model)
         self._rich = RichSkills(model=model)
+        self._unified = UnifiedSkills(model=model)
         self._memory = memory or Memory()
         self._model = model
         self._history: list[dict] = []
@@ -121,7 +140,9 @@ class TradingAgent:
             for block in assistant_content:
                 if block.type == "tool_use":
                     log.info("Tool call: %s(%s)", block.name, block.input)
-                    if block.name in _SERENITY_NAMES:
+                    if block.name in _UNIFIED_NAMES:
+                        result = self._unified.execute(block.name, block.input)
+                    elif block.name in _SERENITY_NAMES:
                         result = self._serenity.execute(block.name, block.input)
                     elif block.name in _RICH_NAMES:
                         result = self._rich.execute(block.name, block.input)
