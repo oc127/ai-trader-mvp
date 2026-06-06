@@ -68,6 +68,13 @@ def test_prompts_contain_serenity_philosophy():
     assert "量产信号" in _SKILL_PROMPTS["thesis_scorecard"]
     assert "资本催化" in _SKILL_PROMPTS["thesis_scorecard"]
     assert "风险诚实度" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "证据分级标准" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "Strong" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "Weak" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "惩罚因子" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "稀释" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "替代设计风险" in _SKILL_PROMPTS["thesis_scorecard"]
+    assert "最终得分" in _SKILL_PROMPTS["thesis_scorecard"]
 
 
 @patch("src.agent.skills.serenity.anthropic.Anthropic")
