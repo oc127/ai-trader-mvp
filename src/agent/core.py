@@ -8,8 +8,7 @@ Architecture inspired by:
 
 from __future__ import annotations
 
-import anthropic
-
+from src.agent.llm_client import LLMClient
 from src.agent.memory import Memory
 from src.agent.skills.rich import RICH_SKILL_DEFINITIONS, RichSkills
 from src.agent.skills.serenity import SERENITY_SKILL_DEFINITIONS, SerenitySkills
@@ -109,15 +108,14 @@ class TradingAgent:
         self,
         tools: TradingTools,
         memory: Memory | None = None,
-        model: str = "claude-sonnet-4-20250514",
+        model: str | None = None,
     ) -> None:
-        self._client = anthropic.Anthropic()
+        self._client = LLMClient(model=model)
         self._tools = tools
         self._serenity = SerenitySkills(model=model)
         self._rich = RichSkills(model=model)
         self._unified = UnifiedSkills(model=model)
         self._memory = memory or Memory()
-        self._model = model
         self._history: list[dict] = []
         self._interaction_count = 0
 
@@ -127,58 +125,47 @@ class TradingAgent:
 
         system = SYSTEM_PROMPT.format(memory_context=self._memory.get_context())
 
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=4096,
+        response = self._client.chat(
             system=system,
-            tools=ALL_TOOL_DEFINITIONS,
             messages=self._history,
+            tools=ALL_TOOL_DEFINITIONS,
         )
 
         while response.stop_reason == "tool_use":
-            assistant_content = response.content
-            self._history.append({"role": "assistant", "content": assistant_content})
+            self._history.append({"role": "assistant", "content": response.content})
 
             tool_results = []
-            for block in assistant_content:
-                if block.type == "tool_use":
-                    log.info("Tool call: %s(%s)", block.name, block.input)
-                    if block.name in _UNIFIED_NAMES:
-                        result = self._unified.execute(block.name, block.input)
-                    elif block.name in _SERENITY_NAMES:
-                        result = self._serenity.execute(block.name, block.input)
-                    elif block.name in _RICH_NAMES:
-                        result = self._rich.execute(block.name, block.input)
-                    else:
-                        result = self._tools.execute(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
+            for tc in response.tool_calls:
+                log.info("Tool call: %s(%s)", tc.name, tc.arguments)
+                if tc.name in _UNIFIED_NAMES:
+                    result = self._unified.execute(tc.name, tc.arguments)
+                elif tc.name in _SERENITY_NAMES:
+                    result = self._serenity.execute(tc.name, tc.arguments)
+                elif tc.name in _RICH_NAMES:
+                    result = self._rich.execute(tc.name, tc.arguments)
+                else:
+                    result = self._tools.execute(tc.name, tc.arguments)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tc.id,
+                    "content": result,
+                })
+                if tc.name in ("place_order", "market_order", "close_position"):
+                    self._memory.add_trade({
+                        "tool": tc.name,
+                        "args": tc.arguments,
+                        "result": result[:200],
                     })
-                    if block.name in ("place_order", "market_order", "close_position"):
-                        self._memory.add_trade({
-                            "tool": block.name,
-                            "args": block.input,
-                            "result": result[:200],
-                        })
 
             self._history.append({"role": "user", "content": tool_results})
 
-            response = self._client.messages.create(
-                model=self._model,
-                max_tokens=4096,
+            response = self._client.chat(
                 system=system,
-                tools=ALL_TOOL_DEFINITIONS,
                 messages=self._history,
+                tools=ALL_TOOL_DEFINITIONS,
             )
 
-        text_parts = []
-        for block in response.content:
-            if hasattr(block, "text"):
-                text_parts.append(block.text)
-
-        reply = "\n".join(text_parts)
+        reply = response.text or ""
         self._history.append({"role": "assistant", "content": reply})
 
         if len(self._history) > 40:

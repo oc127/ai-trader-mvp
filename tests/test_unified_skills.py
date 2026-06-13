@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from src.agent.llm_client import LLMResponse
 from src.agent.skills.unified import (
     _SYNTHESIS_PROMPTS,
     UNIFIED_SKILL_DEFINITIONS,
@@ -77,13 +78,11 @@ def test_prompts_contain_framework_references():
     assert "清仓" in _SYNTHESIS_PROMPTS["position_check"]
 
 
-@patch("src.agent.skills.unified.anthropic.Anthropic")
-def test_full_analysis_chains_both_frameworks(mock_anthropic_cls):
+@patch("src.agent.skills.unified.LLMClient")
+def test_full_analysis_chains_both_frameworks(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="unified decision")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="unified decision")
+    mock_llm_cls.return_value = mock_client
 
     skills = UnifiedSkills()
     skills._serenity = MagicMock()
@@ -106,19 +105,17 @@ def test_full_analysis_chains_both_frameworks(mock_anthropic_cls):
         "rich_scorecard",
         {"symbol": "SIVE", "direction": "long"},
     )
-    mock_client.messages.create.assert_called_once()
-    synth_kwargs = mock_client.messages.create.call_args[1]
+    mock_client.chat.assert_called_once()
+    synth_kwargs = mock_client.chat.call_args[1]
     assert "serenity scorecard result" in synth_kwargs["system"]
     assert "rich scorecard result" in synth_kwargs["system"]
 
 
-@patch("src.agent.skills.unified.anthropic.Anthropic")
-def test_entry_plan_chains_rich_skills(mock_anthropic_cls):
+@patch("src.agent.skills.unified.LLMClient")
+def test_entry_plan_chains_rich_skills(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="entry plan")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="entry plan")
+    mock_llm_cls.return_value = mock_client
 
     skills = UnifiedSkills()
     skills._rich = MagicMock()
@@ -138,19 +135,17 @@ def test_entry_plan_chains_rich_skills(mock_anthropic_cls):
     calls = skills._rich.execute.call_args_list
     assert calls[0][0][0] == "drill_down"
     assert calls[1][0][0] == "fib_analysis"
-    synth_kwargs = mock_client.messages.create.call_args[1]
+    synth_kwargs = mock_client.chat.call_args[1]
     assert "$50,000" in synth_kwargs["system"]
     assert "drill down result" in synth_kwargs["system"]
     assert "fib analysis result" in synth_kwargs["system"]
 
 
-@patch("src.agent.skills.unified.anthropic.Anthropic")
-def test_position_check_chains_both(mock_anthropic_cls):
+@patch("src.agent.skills.unified.LLMClient")
+def test_position_check_chains_both(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="hold position")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="hold position")
+    mock_llm_cls.return_value = mock_client
 
     skills = UnifiedSkills()
     skills._serenity = MagicMock()
@@ -174,19 +169,17 @@ def test_position_check_chains_both(mock_anthropic_cls):
         "drill_down",
         {"symbol": "BESI.AS", "bias": "long"},
     )
-    synth_kwargs = mock_client.messages.create.call_args[1]
+    synth_kwargs = mock_client.chat.call_args[1]
     assert "$120.0" in synth_kwargs["system"]
     assert "thesis still valid" in synth_kwargs["system"]
     assert "technical ok" in synth_kwargs["system"]
 
 
-@patch("src.agent.skills.unified.anthropic.Anthropic")
-def test_entry_plan_with_style(mock_anthropic_cls):
+@patch("src.agent.skills.unified.LLMClient")
+def test_entry_plan_with_style(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="theta plan")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="theta plan")
+    mock_llm_cls.return_value = mock_client
 
     skills = UnifiedSkills()
     skills._rich = MagicMock()
@@ -199,17 +192,15 @@ def test_entry_plan_with_style(mock_anthropic_cls):
     })
 
     assert result == "theta plan"
-    synth_kwargs = mock_client.messages.create.call_args[1]
+    synth_kwargs = mock_client.chat.call_args[1]
     assert "Theta" in synth_kwargs["system"]
 
 
-@patch("src.agent.skills.unified.anthropic.Anthropic")
-def test_full_analysis_with_capital(mock_anthropic_cls):
+@patch("src.agent.skills.unified.LLMClient")
+def test_full_analysis_with_capital(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="decision")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="decision")
+    mock_llm_cls.return_value = mock_client
 
     skills = UnifiedSkills()
     skills._serenity = MagicMock()
@@ -225,17 +216,15 @@ def test_full_analysis_with_capital(mock_anthropic_cls):
     })
 
     assert result == "decision"
-    synth_kwargs = mock_client.messages.create.call_args[1]
+    synth_kwargs = mock_client.chat.call_args[1]
     assert "$100,000" in synth_kwargs["system"]
 
 
-@patch("src.agent.skills.unified.anthropic.Anthropic")
-def test_entry_plan_short_direction(mock_anthropic_cls):
+@patch("src.agent.skills.unified.LLMClient")
+def test_entry_plan_short_direction(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="short plan")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="short plan")
+    mock_llm_cls.return_value = mock_client
 
     skills = UnifiedSkills()
     skills._rich = MagicMock()
@@ -250,5 +239,5 @@ def test_entry_plan_short_direction(mock_anthropic_cls):
     calls = skills._rich.execute.call_args_list
     assert calls[0][0][1] == {"symbol": "TSLA", "bias": "short"}
     assert calls[1][0][1]["trend"] == "down"
-    synth_kwargs = mock_client.messages.create.call_args[1]
+    synth_kwargs = mock_client.chat.call_args[1]
     assert "做空" in synth_kwargs["system"]

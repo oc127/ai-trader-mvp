@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from src.agent.llm_client import LLMResponse
 from src.agent.skills.rich import _SKILL_PROMPTS, RICH_SKILL_DEFINITIONS, RichSkills
 
 
@@ -64,47 +65,41 @@ def test_no_name_collisions_with_other_skills():
     assert rich_names.isdisjoint(trading_names)
 
 
-@patch("src.agent.skills.rich.anthropic.Anthropic")
-def test_fib_analysis_calls_claude(mock_anthropic_cls):
+@patch("src.agent.skills.rich.LLMClient")
+def test_fib_analysis_calls_llm(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="fib analysis result")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="fib analysis result")
+    mock_llm_cls.return_value = mock_client
 
     skills = RichSkills()
     result = skills.execute("fib_analysis", {"symbol": "NVDA", "trend": "up"})
 
     assert result == "fib analysis result"
-    mock_client.messages.create.assert_called_once()
-    call_kwargs = mock_client.messages.create.call_args[1]
+    mock_client.chat.assert_called_once()
+    call_kwargs = mock_client.chat.call_args[1]
     assert "NVDA" in call_kwargs["system"]
     assert "Golden Zone" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.rich.anthropic.Anthropic")
-def test_drill_down_default_bias(mock_anthropic_cls):
+@patch("src.agent.skills.rich.LLMClient")
+def test_drill_down_default_bias(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="drill down result")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="drill down result")
+    mock_llm_cls.return_value = mock_client
 
     skills = RichSkills()
     result = skills.execute("drill_down", {"symbol": "AAPL"})
 
     assert result == "drill down result"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "中性" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.rich.anthropic.Anthropic")
-def test_risk_reward_calc_with_all_params(mock_anthropic_cls):
+@patch("src.agent.skills.rich.LLMClient")
+def test_risk_reward_calc_with_all_params(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="rr calc")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="rr calc")
+    mock_llm_cls.return_value = mock_client
 
     skills = RichSkills()
     result = skills.execute("risk_reward_calc", {
@@ -116,19 +111,17 @@ def test_risk_reward_calc_with_all_params(mock_anthropic_cls):
     })
 
     assert result == "rr calc"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "$185.0" in call_kwargs["system"]
     assert "$250.0" in call_kwargs["system"]
     assert "$10,000" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.rich.anthropic.Anthropic")
-def test_risk_reward_calc_auto_levels(mock_anthropic_cls):
+@patch("src.agent.skills.rich.LLMClient")
+def test_risk_reward_calc_auto_levels(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="auto calc")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="auto calc")
+    mock_llm_cls.return_value = mock_client
 
     skills = RichSkills()
     result = skills.execute("risk_reward_calc", {
@@ -137,17 +130,15 @@ def test_risk_reward_calc_auto_levels(mock_anthropic_cls):
     })
 
     assert result == "auto calc"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "自动计算" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.rich.anthropic.Anthropic")
-def test_rich_scorecard_calls_claude(mock_anthropic_cls):
+@patch("src.agent.skills.rich.LLMClient")
+def test_rich_scorecard_calls_llm(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="scorecard")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="scorecard")
+    mock_llm_cls.return_value = mock_client
 
     skills = RichSkills()
     result = skills.execute("rich_scorecard", {
@@ -156,24 +147,22 @@ def test_rich_scorecard_calls_claude(mock_anthropic_cls):
     })
 
     assert result == "scorecard"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "BESI.AS" in call_kwargs["system"]
     assert "做多" in call_kwargs["system"]
     assert "一票否决" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.rich.anthropic.Anthropic")
-def test_theta_harvest_defaults(mock_anthropic_cls):
+@patch("src.agent.skills.rich.LLMClient")
+def test_theta_harvest_defaults(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="theta result")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="theta result")
+    mock_llm_cls.return_value = mock_client
 
     skills = RichSkills()
     result = skills.execute("theta_harvest", {"symbol": "AAPL"})
 
     assert result == "theta result"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "自动推荐" in call_kwargs["system"]
     assert "适中" in call_kwargs["system"]

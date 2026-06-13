@@ -56,13 +56,12 @@ Two macro bets underlying everything:
 2. Humanoid robots scale to billion-unit level
 If either is wrong, many positions collapse.
 
-Each skill makes a focused Claude API sub-call with a specialized prompt.
+Each skill makes a focused LLM sub-call with a specialized prompt.
 """
 
 from __future__ import annotations
 
-import anthropic
-
+from src.agent.llm_client import LLMClient
 from src.logger import get_logger
 
 log = get_logger(__name__)
@@ -727,9 +726,8 @@ Serenity 的 alpha 来源（两种间隙）：
 
 
 class SerenitySkills:
-    def __init__(self, model: str = "claude-sonnet-4-20250514") -> None:
-        self._client = anthropic.Anthropic()
-        self._model = model
+    def __init__(self, model: str | None = None) -> None:
+        self._client = LLMClient(model=model)
 
     def execute(self, name: str, args: dict) -> str:
         handler = getattr(self, f"_skill_{name}", None)
@@ -741,14 +739,12 @@ class SerenitySkills:
             log.exception("Skill %s failed", name)
             return f'{{"error": "{e}"}}'
 
-    def _call_claude(self, system: str, user_msg: str) -> str:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=4096,
+    def _call_llm(self, system: str, user_msg: str) -> str:
+        response = self._client.chat(
             system=system,
             messages=[{"role": "user", "content": user_msg}],
         )
-        return response.content[0].text
+        return response.text or ""
 
     def _skill_map_supply_chain(self, product: str, depth: str = "deep") -> str:
         depth_instruction = (
@@ -759,7 +755,7 @@ class SerenitySkills:
         prompt = _SKILL_PROMPTS["map_supply_chain"].format(
             product=product, depth_instruction=depth_instruction
         )
-        return self._call_claude(prompt, f"请分析 {product} 的架构迁移和物理瓶颈。")
+        return self._call_llm(prompt, f"请分析 {product} 的架构迁移和物理瓶颈。")
 
     def _skill_find_chokepoints(self, industry: str, region: str = "all") -> str:
         region_map = {
@@ -775,7 +771,7 @@ class SerenitySkills:
         prompt = _SKILL_PROMPTS["find_chokepoints"].format(
             industry=industry, region=region_text
         )
-        return self._call_claude(prompt, f"请找出 {industry} 里被迫购买的窄口。")
+        return self._call_llm(prompt, f"请找出 {industry} 里被迫购买的窄口。")
 
     def _skill_design_in_detective(
         self, company: str, focus: str | None = None
@@ -786,7 +782,7 @@ class SerenitySkills:
         prompt = _SKILL_PROMPTS["design_in_detective"].format(
             company=company, focus_context=focus_context
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt, f"请侦测 {company} 的量产前夜信号。"
         )
 
@@ -797,7 +793,7 @@ class SerenitySkills:
         prompt = _SKILL_PROMPTS["capital_catalyst_stack"].format(
             company=company, listing_context=listing_context
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt, f"请分析 {company} 的资本催化剂叠加情况。"
         )
 
@@ -810,14 +806,14 @@ class SerenitySkills:
         prompt = _SKILL_PROMPTS["geopolitical_impact"].format(
             event=event, chains_context=chains_context
         )
-        return self._call_claude(prompt, f"请分析此事件的供应链影响: {event}")
+        return self._call_llm(prompt, f"请分析此事件的供应链影响: {event}")
 
     def _skill_challenge_thesis(self, thesis: str, position: str) -> str:
         pos_text = "看多(做多)" if position == "long" else "看空(做空)"
         prompt = _SKILL_PROMPTS["challenge_thesis"].format(
             thesis=thesis, position=pos_text
         )
-        return self._call_claude(prompt, f"请挑战此论点: {thesis}")
+        return self._call_llm(prompt, f"请挑战此论点: {thesis}")
 
     def _skill_cross_market_scan(
         self, theme: str, min_market_cap_usd: str = "500M"
@@ -825,7 +821,7 @@ class SerenitySkills:
         prompt = _SKILL_PROMPTS["cross_market_scan"].format(
             theme=theme, min_cap=min_market_cap_usd
         )
-        return self._call_claude(prompt, f"请扫描 {theme} 主题的全球上市公司。")
+        return self._call_llm(prompt, f"请扫描 {theme} 主题的全球上市公司。")
 
     def _skill_thesis_scorecard(
         self, company: str, thesis: str, timeframe: str = "medium"
@@ -839,6 +835,6 @@ class SerenitySkills:
         prompt = _SKILL_PROMPTS["thesis_scorecard"].format(
             company=company, thesis=thesis, timeframe=tf_text
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt, f"请评估 {company} 的投资论点: {thesis}"
         )

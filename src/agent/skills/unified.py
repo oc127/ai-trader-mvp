@@ -12,8 +12,7 @@ then synthesizes results through a final Claude call.
 
 from __future__ import annotations
 
-import anthropic
-
+from src.agent.llm_client import LLMClient
 from src.agent.skills.rich import RichSkills
 from src.agent.skills.serenity import SerenitySkills
 from src.logger import get_logger
@@ -279,9 +278,8 @@ _SYNTHESIS_PROMPTS = {
 
 
 class UnifiedSkills:
-    def __init__(self, model: str = "claude-sonnet-4-20250514") -> None:
-        self._client = anthropic.Anthropic()
-        self._model = model
+    def __init__(self, model: str | None = None) -> None:
+        self._client = LLMClient(model=model)
         self._serenity = SerenitySkills(model=model)
         self._rich = RichSkills(model=model)
 
@@ -295,14 +293,12 @@ class UnifiedSkills:
             log.exception("Unified skill %s failed", name)
             return f'{{"error": "{e}"}}'
 
-    def _call_claude(self, system: str, user_msg: str) -> str:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=4096,
+    def _call_llm(self, system: str, user_msg: str) -> str:
+        response = self._client.chat(
             system=system,
             messages=[{"role": "user", "content": user_msg}],
         )
-        return response.content[0].text
+        return response.text or ""
 
     def _skill_full_analysis(
         self,
@@ -332,7 +328,7 @@ class UnifiedSkills:
             rich_result=rich_result,
             capital_context=capital_context,
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt,
             f"请对 {company} 做 Serenity × RICH 综合决策。论点: {thesis}，方向: {direction}。",
         )
@@ -376,7 +372,7 @@ class UnifiedSkills:
             drill_down_result=drill_down_result,
             fib_result=fib_result,
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt,
             f"请为 {symbol} ({direction_text}) 输出完整入场计划。",
         )
@@ -409,7 +405,7 @@ class UnifiedSkills:
             thesis_check=thesis_check,
             technical_check=technical_check,
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt,
             f"请审查持仓: {symbol}，方向 {direction_text}，入场价 ${entry_price}。",
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from src.agent.llm_client import LLMResponse
 from src.agent.skills.serenity import _SKILL_PROMPTS, SERENITY_SKILL_DEFINITIONS, SerenitySkills
 
 
@@ -77,30 +78,26 @@ def test_prompts_contain_serenity_philosophy():
     assert "最终得分" in _SKILL_PROMPTS["thesis_scorecard"]
 
 
-@patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_map_supply_chain_calls_claude(mock_anthropic_cls):
+@patch("src.agent.skills.serenity.LLMClient")
+def test_map_supply_chain_calls_llm(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="supply chain analysis result")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="supply chain analysis result")
+    mock_llm_cls.return_value = mock_client
 
     skills = SerenitySkills()
     result = skills.execute("map_supply_chain", {"product": "CPO光互连"})
 
     assert result == "supply chain analysis result"
-    mock_client.messages.create.assert_called_once()
-    call_kwargs = mock_client.messages.create.call_args[1]
+    mock_client.chat.assert_called_once()
+    call_kwargs = mock_client.chat.call_args[1]
     assert "CPO光互连" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_design_in_detective_calls_claude(mock_anthropic_cls):
+@patch("src.agent.skills.serenity.LLMClient")
+def test_design_in_detective_calls_llm(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="pre-revenue signals")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="pre-revenue signals")
+    mock_llm_cls.return_value = mock_client
 
     skills = SerenitySkills()
     result = skills.execute(
@@ -109,18 +106,16 @@ def test_design_in_detective_calls_claude(mock_anthropic_cls):
     )
 
     assert result == "pre-revenue signals"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "SIVE" in call_kwargs["system"]
     assert "CW DFB lasers" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_capital_catalyst_stack_calls_claude(mock_anthropic_cls):
+@patch("src.agent.skills.serenity.LLMClient")
+def test_capital_catalyst_stack_calls_llm(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="catalyst analysis")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="catalyst analysis")
+    mock_llm_cls.return_value = mock_client
 
     skills = SerenitySkills()
     result = skills.execute(
@@ -129,18 +124,16 @@ def test_capital_catalyst_stack_calls_claude(mock_anthropic_cls):
     )
 
     assert result == "catalyst analysis"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "Sivers" in call_kwargs["system"]
     assert "OMX Stockholm" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_challenge_thesis_has_info_layering(mock_anthropic_cls):
+@patch("src.agent.skills.serenity.LLMClient")
+def test_challenge_thesis_has_info_layering(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="counter arguments")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="counter arguments")
+    mock_llm_cls.return_value = mock_client
 
     skills = SerenitySkills()
     result = skills.execute(
@@ -149,18 +142,16 @@ def test_challenge_thesis_has_info_layering(mock_anthropic_cls):
     )
 
     assert result == "counter arguments"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "信息分层" in call_kwargs["system"]
     assert "公开确认" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_thesis_scorecard_has_six_dimensions(mock_anthropic_cls):
+@patch("src.agent.skills.serenity.LLMClient")
+def test_thesis_scorecard_has_six_dimensions(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="scorecard")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="scorecard")
+    mock_llm_cls.return_value = mock_client
 
     skills = SerenitySkills()
     result = skills.execute(
@@ -169,20 +160,18 @@ def test_thesis_scorecard_has_six_dimensions(mock_anthropic_cls):
     )
 
     assert result == "scorecard"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "量产信号" in call_kwargs["system"]
     assert "资本催化" in call_kwargs["system"]
     assert "风险诚实度" in call_kwargs["system"]
     assert "25%" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_geopolitical_impact_with_chains(mock_anthropic_cls):
+@patch("src.agent.skills.serenity.LLMClient")
+def test_geopolitical_impact_with_chains(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="impact analysis")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="impact analysis")
+    mock_llm_cls.return_value = mock_client
 
     skills = SerenitySkills()
     result = skills.execute(
@@ -194,23 +183,21 @@ def test_geopolitical_impact_with_chains(mock_anthropic_cls):
     )
 
     assert result == "impact analysis"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "AI芯片" in call_kwargs["system"]
 
 
-@patch("src.agent.skills.serenity.anthropic.Anthropic")
-def test_cross_market_scan_has_geographic_arbitrage(mock_anthropic_cls):
+@patch("src.agent.skills.serenity.LLMClient")
+def test_cross_market_scan_has_geographic_arbitrage(mock_llm_cls):
     mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="scan results")]
-    mock_client.messages.create.return_value = mock_response
-    mock_anthropic_cls.return_value = mock_client
+    mock_client.chat.return_value = LLMResponse(text="scan results")
+    mock_llm_cls.return_value = mock_client
 
     skills = SerenitySkills()
     result = skills.execute("cross_market_scan", {"theme": "CPO激光源"})
 
     assert result == "scan results"
-    call_kwargs = mock_client.messages.create.call_args[1]
+    call_kwargs = mock_client.chat.call_args[1]
     assert "地理套利" in call_kwargs["system"]
     assert "隐形冠军" in call_kwargs["system"]
 

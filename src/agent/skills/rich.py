@@ -16,13 +16,12 @@ Core methodology:
 - Theta harvesting: Strangles (sell BOTH put+call far OTM), not just one side
 - Anti-0DTE: explicitly quit 0DTE, calls it gambling. Systematic > speculative.
 
-Each skill makes a focused Claude API sub-call with a specialized prompt.
+Each skill makes a focused LLM sub-call with a specialized prompt.
 """
 
 from __future__ import annotations
 
-import anthropic
-
+from src.agent.llm_client import LLMClient
 from src.logger import get_logger
 
 log = get_logger(__name__)
@@ -515,9 +514,8 @@ RICH 的核心策略是 **Strangles**（同时卖 Put + 卖 Call），不是只�
 
 
 class RichSkills:
-    def __init__(self, model: str = "claude-sonnet-4-20250514") -> None:
-        self._client = anthropic.Anthropic()
-        self._model = model
+    def __init__(self, model: str | None = None) -> None:
+        self._client = LLMClient(model=model)
 
     def execute(self, name: str, args: dict) -> str:
         handler = getattr(self, f"_skill_{name}", None)
@@ -529,14 +527,12 @@ class RichSkills:
             log.exception("Skill %s failed", name)
             return f'{{"error": "{e}"}}'
 
-    def _call_claude(self, system: str, user_msg: str) -> str:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=4096,
+    def _call_llm(self, system: str, user_msg: str) -> str:
+        response = self._client.chat(
             system=system,
             messages=[{"role": "user", "content": user_msg}],
         )
-        return response.content[0].text
+        return response.text or ""
 
     def _skill_fib_analysis(
         self, symbol: str, trend: str, timeframe: str = "daily"
@@ -545,14 +541,14 @@ class RichSkills:
         prompt = _SKILL_PROMPTS["fib_analysis"].format(
             symbol=symbol, timeframe=timeframe, trend_text=trend_text
         )
-        return self._call_claude(prompt, f"请分析 {symbol} 的 Fibonacci 位置。")
+        return self._call_llm(prompt, f"请分析 {symbol} 的 Fibonacci 位置。")
 
     def _skill_drill_down(self, symbol: str, bias: str = "neutral") -> str:
         bias_map = {"long": "偏多", "short": "偏空", "neutral": "中性（让分析决定）"}
         prompt = _SKILL_PROMPTS["drill_down"].format(
             symbol=symbol, bias_text=bias_map.get(bias, "中性")
         )
-        return self._call_claude(prompt, f"请对 {symbol} 做 Drill Down 多周期分析。")
+        return self._call_llm(prompt, f"请对 {symbol} 做 Drill Down 多周期分析。")
 
     def _skill_risk_reward_calc(
         self,
@@ -572,7 +568,7 @@ class RichSkills:
             target_text=tgt_text,
             capital_text=cap_text,
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt, f"请计算 {symbol} 入场价 {entry} 的风险收益比。"
         )
 
@@ -592,7 +588,7 @@ class RichSkills:
             budget_text=budget_text,
             timeframe_text=tf_text,
         )
-        return self._call_claude(prompt, f"请为 {symbol} 设计 LEAPS 策略。")
+        return self._call_llm(prompt, f"请为 {symbol} 设计 LEAPS 策略。")
 
     def _skill_theta_harvest(
         self,
@@ -616,7 +612,7 @@ class RichSkills:
             strategy_text=strat_map.get(strategy, "自动推荐"),
             risk_text=risk_map.get(risk_tolerance, "适中"),
         )
-        return self._call_claude(prompt, f"请分析 {symbol} 的 Theta 收割机会。")
+        return self._call_llm(prompt, f"请分析 {symbol} 的 Theta 收割机会。")
 
     def _skill_rich_scorecard(
         self,
@@ -629,6 +625,6 @@ class RichSkills:
         prompt = _SKILL_PROMPTS["rich_scorecard"].format(
             symbol=symbol, direction_text=dir_text, entry_text=entry_text
         )
-        return self._call_claude(
+        return self._call_llm(
             prompt, f"请用 RICH 框架给 {symbol} ({dir_text}) 打分。"
         )
