@@ -83,18 +83,21 @@ def test_convert_messages_with_tool_use():
     assert result[3]["content"] == "$50000"
 
 
+@patch.dict("os.environ", {}, clear=True)
 def test_provider_defaults_anthropic():
     client = LLMClient(provider="anthropic")
     assert client.provider == "anthropic"
     assert client.model == "claude-sonnet-4-20250514"
 
 
+@patch.dict("os.environ", {}, clear=True)
 def test_provider_defaults_openai():
     client = LLMClient(provider="openai", api_key="sk-test")
     assert client.provider == "openai"
     assert client.model == "gpt-4o"
 
 
+@patch.dict("os.environ", {}, clear=True)
 def test_provider_defaults_deepseek():
     client = LLMClient(provider="deepseek", api_key="sk-test")
     assert client.model == "deepseek-chat"

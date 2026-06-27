@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.agent.core import TradingAgent
 from src.agent.memory import Memory
 from src.agent.tools import TradingTools
 from src.hl_client.rest import HLRestClient
+
+load_dotenv()
+
+_STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 
 app = FastAPI(title="AI Trading Agent")
 
@@ -67,3 +74,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str) -> None:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "sessions": len(_sessions)}
+
+
+@app.get("/")
+async def index() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
