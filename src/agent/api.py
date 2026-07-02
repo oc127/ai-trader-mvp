@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -74,6 +75,26 @@ async def websocket_chat(websocket: WebSocket, session_id: str) -> None:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "sessions": len(_sessions)}
+
+
+@app.get("/api/system")
+async def system_info() -> dict:
+    memory = Memory("data/memory_default.json")
+    stats = memory.get_stats()
+    return {
+        "provider": os.getenv("LLM_PROVIDER", "anthropic"),
+        "model": os.getenv("LLM_MODEL", ""),
+        "environment": os.getenv("ENVIRONMENT", "testnet"),
+        "paper": True,
+        "sessions": len(_sessions),
+        "trades": stats.get("total_trades", 0),
+        "lessons": stats.get("lessons_learned", 0),
+    }
+
+
+@app.get("/dashboard")
+async def dashboard() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "dashboard.html")
 
 
 @app.get("/")
