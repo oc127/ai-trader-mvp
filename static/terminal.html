@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SERENITY x RICH x BERKSHIRE — Terminal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#07090d;--surface:#0d1118;--surface2:#111827;--border:#1b2130;
+  --text:#c8d1db;--dim:#4a5568;--dim2:#2d3748;
+  --gold:#e8a832;--violet:#a87bff;--cyan:#36d6b5;--green:#22c55e;--red:#ef4444;--blue:#3b82f6;
+  --gold-g:rgba(232,168,50,0.08);--violet-g:rgba(168,123,255,0.08);
+  --cyan-g:rgba(54,214,181,0.08);--green-g:rgba(34,197,94,0.08);
+}
+body{
+  font-family:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono','Menlo',monospace;
+  background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;
+  overflow:hidden;font-variant-numeric:tabular-nums;font-size:12px;line-height:1.4;
+}
+
+/* Status rail */
+.rail{display:flex;align-items:center;height:32px;background:var(--surface);
+  border-bottom:1px solid var(--border);padding:0 12px;gap:16px;flex-shrink:0}
+.rail-brand{font-weight:700;font-size:11px;letter-spacing:1.5px;color:var(--gold);white-space:nowrap}
+.rail-brand i{color:var(--dim);font-style:normal;font-weight:400;letter-spacing:0}
+.rail-sep{width:1px;height:16px;background:var(--border);flex-shrink:0}
+.rail-price{display:flex;align-items:center;gap:6px;font-size:11px;white-space:nowrap}
+.rail-price .sym{color:var(--dim)}
+.rail-price .val{font-weight:600}
+.rail-stat{font-size:10px;color:var(--dim);white-space:nowrap}
+.rail-stat b{color:var(--text);font-weight:600}
+.rail-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.rail-live{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:600;
+  color:var(--green);letter-spacing:0.5px}
+.rail-live::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--green);
+  animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.rail-clock{font-size:12px;font-weight:600;color:var(--text);letter-spacing:0.5px}
+
+/* Sub-rail */
+.subrail{display:flex;align-items:center;height:24px;background:var(--surface);
+  border-bottom:1px solid var(--border);padding:0 12px;gap:12px;flex-shrink:0;
+  font-size:10px;color:var(--dim)}
+.subrail a{color:var(--dim);text-decoration:none;padding:2px 8px;border-radius:3px;cursor:pointer}
+.subrail a:hover,.subrail a.active{color:var(--gold);background:var(--gold-g)}
+
+/* Grid */
+.grid{flex:1;display:grid;grid-template-columns:220px 1fr 240px;grid-template-rows:auto 1fr auto;
+  gap:1px;background:var(--border);overflow:hidden;min-height:0}
+.panel{background:var(--surface);overflow:hidden;display:flex;flex-direction:column}
+.panel-head{display:flex;align-items:center;justify-content:space-between;
+  padding:6px 10px;font-size:10px;letter-spacing:0.8px;text-transform:uppercase;
+  color:var(--dim);border-bottom:1px solid var(--border);flex-shrink:0}
+.panel-head .dot{width:5px;height:5px;border-radius:50%}
+.panel-body{padding:10px;flex:1;overflow-y:auto;overflow-x:hidden}
+
+/* Left column panels */
+.left-col{grid-column:1;grid-row:1/4;display:flex;flex-direction:column;gap:1px;background:var(--border)}
+
+/* Account card */
+.acct-label{font-size:9px;letter-spacing:0.8px;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
+.acct-value{font-size:22px;font-weight:700;line-height:1.2}
+.acct-sub{font-size:10px;color:var(--dim);margin-top:2px}
+.acct-row{display:flex;gap:12px;margin-top:10px}
+.acct-metric{flex:1}
+.acct-metric .v{font-size:14px;font-weight:700}
+.acct-metric .l{font-size:9px;color:var(--dim);letter-spacing:0.5px;text-transform:uppercase}
+.risk-bar{height:4px;background:var(--dim2);border-radius:2px;margin-top:6px;overflow:hidden}
+.risk-bar-fill{height:100%;border-radius:2px;transition:width .5s}
+
+/* Framework list */
+.fw-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+.fw-item:last-child{border:none}
+.fw-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.fw-name{font-size:11px;font-weight:600;flex:1}
+.fw-count{font-size:11px;color:var(--dim)}
+.fw-bar{width:40px;height:3px;background:var(--dim2);border-radius:2px;overflow:hidden}
+.fw-bar-fill{height:100%;border-radius:2px}
+
+/* Center canvas */
+.center{grid-column:2;grid-row:1/3;position:relative}
+.center canvas{width:100%;height:100%;display:block}
+.canvas-overlay{position:absolute;top:8px;left:10px;font-size:10px;color:var(--dim);
+  letter-spacing:0.8px;text-transform:uppercase;pointer-events:none}
+.canvas-overlay span{color:var(--text);font-weight:600}
+.canvas-stats{position:absolute;top:8px;right:10px;text-align:right;font-size:10px;
+  color:var(--dim);pointer-events:none}
+.canvas-stats b{color:var(--text)}
+
+/* Right column */
+.right-col{grid-column:3;grid-row:1/4;display:flex;flex-direction:column;gap:1px;background:var(--border)}
+
+/* Pipeline */
+.pipe-step{display:flex;align-items:center;gap:6px;padding:5px 0;font-size:11px}
+.pipe-num{width:18px;height:18px;border-radius:3px;display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;border:1px solid var(--border);color:var(--dim);flex-shrink:0}
+.pipe-num.active{border-color:var(--green);color:var(--green);background:var(--green-g);
+  box-shadow:0 0 8px rgba(34,197,94,0.2)}
+.pipe-label{flex:1}
+.pipe-label small{display:block;font-size:9px;color:var(--dim)}
+.pipe-status{font-size:9px;font-weight:600}
+
+/* Decision matrix */
+.matrix{display:grid;grid-template-columns:auto 1fr 1fr;gap:1px;background:var(--border);
+  border-radius:4px;overflow:hidden;font-size:10px}
+.mx-cell{background:var(--bg);padding:6px 8px;text-align:center}
+.mx-cell.h{font-weight:600;color:var(--dim);letter-spacing:0.3px;font-size:9px}
+.mx-cell.rh{text-align:left;font-weight:600;font-size:9px}
+.mx-g{color:var(--green);font-weight:600}
+.mx-y{color:var(--gold);font-weight:600}
+.mx-r{color:var(--red);font-weight:600}
+
+/* Bottom log */
+.log-area{grid-column:2;grid-row:3;background:var(--surface);display:flex;flex-direction:column}
+.log-scroll{flex:1;overflow-y:auto;padding:4px 10px;font-size:10px;line-height:1.6;min-height:0}
+.log-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-line .ts{color:var(--dim);margin-right:8px}
+.log-line .tag{display:inline-block;width:32px;text-align:center;font-weight:700;font-size:9px;margin-right:6px;
+  border-radius:2px;padding:0 2px}
+.tag-in{background:rgba(59,130,246,0.15);color:var(--blue)}
+.tag-win{background:rgba(34,197,94,0.15);color:var(--green)}
+.tag-skip{background:rgba(74,85,104,0.15);color:var(--dim)}
+.tag-err{background:rgba(239,68,68,0.15);color:var(--red)}
+.tag-scan{background:rgba(168,123,255,0.15);color:var(--violet)}
+.tag-exec{background:rgba(54,214,181,0.15);color:var(--cyan)}
+
+/* Analytics strip */
+.analytics{grid-column:1/4;grid-row:4;display:none}
+
+/* Bottom bar */
+.bottombar{display:flex;align-items:center;height:22px;background:var(--surface);
+  border-top:1px solid var(--border);padding:0 12px;gap:16px;flex-shrink:0;font-size:10px;color:var(--dim)}
+.bottombar .g{color:var(--green)}
+.bottombar .r{color:var(--red)}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--dim2);border-radius:2px}
+
+@media(max-width:900px){
+  .grid{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+  .left-col,.right-col{grid-column:1;grid-row:auto;flex-direction:row;flex-wrap:wrap}
+  .center{min-height:300px}
+}
+</style>
+</head>
+<body>
+
+<!-- Top rail -->
+<div class="rail">
+  <div class="rail-brand">SERENITY <i>x</i> RICH <i>x</i> BERKSHIRE</div>
+  <div class="rail-sep"></div>
+  <div class="rail-price"><span class="sym">BTC</span><span class="val" id="pBTC">--</span></div>
+  <div class="rail-price"><span class="sym">ETH</span><span class="val" id="pETH">--</span></div>
+  <div class="rail-sep"></div>
+  <div class="rail-stat">TOOLS <b>35</b></div>
+  <div class="rail-stat">SKILLS <b>25</b></div>
+  <div class="rail-stat">FRAMEWORKS <b>4</b></div>
+  <div class="rail-right">
+    <div class="rail-live" id="liveStatus">ONLINE</div>
+    <div class="rail-sep"></div>
+    <div class="rail-clock" id="utcClock">--:--:--</div>
+    <span style="font-size:9px;color:var(--dim)">UTC</span>
+  </div>
+</div>
+<div class="subrail">
+  <span style="color:var(--gold)">PAPER MODE</span>
+  <span>|</span>
+  <span>HYPERLIQUID TESTNET</span>
+  <span style="margin-left:auto"></span>
+  <a href="/">Chat</a>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/terminal" class="active">Terminal</a>
+</div>
+
+<!-- Main grid -->
+<div class="grid">
+
+  <!-- LEFT COLUMN -->
+  <div class="left-col">
+    <!-- Account -->
+    <div class="panel">
+      <div class="panel-head">Account<div class="dot" style="background:var(--green)"></div></div>
+      <div class="panel-body">
+        <div class="acct-label">Portfolio Value</div>
+        <div class="acct-value" style="color:var(--green)" id="acctVal">$0.00</div>
+        <div class="acct-sub" id="acctPnl">PnL: $0.00 (+0.00%)</div>
+        <div class="acct-row">
+          <div class="acct-metric"><div class="v" id="mTrades">0</div><div class="l">Trades</div></div>
+          <div class="acct-metric"><div class="v" id="mWinRate">--%</div><div class="l">Win Rate</div></div>
+          <div class="acct-metric"><div class="v" id="mRR">--</div><div class="l">Avg R:R</div></div>
+        </div>
+        <div style="margin-top:10px">
+          <div class="acct-label">Liq Risk</div>
+          <div class="risk-bar"><div class="risk-bar-fill" id="riskBar" style="width:16%;background:var(--green)"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px">
+            <span style="font-size:9px;color:var(--dim)">1.6 / 10</span>
+            <span style="font-size:9px;color:var(--green);font-weight:600">SAFE</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Frameworks -->
+    <div class="panel">
+      <div class="panel-head">Frameworks<div class="dot" style="background:var(--violet)"></div></div>
+      <div class="panel-body">
+        <div class="fw-item">
+          <div class="fw-dot" style="background:var(--gold)"></div>
+          <div class="fw-name" style="color:var(--gold)">BERKSHIRE</div>
+          <div class="fw-count">4</div>
+          <div class="fw-bar"><div class="fw-bar-fill" style="width:40%;background:var(--gold)"></div></div>
+        </div>
+        <div class="fw-item">
+          <div class="fw-dot" style="background:var(--violet)"></div>
+          <div class="fw-name" style="color:var(--violet)">SERENITY</div>
+          <div class="fw-count">8</div>
+          <div class="fw-bar"><div class="fw-bar-fill" style="width:80%;background:var(--violet)"></div></div>
+        </div>
+        <div class="fw-item">
+          <div class="fw-dot" style="background:var(--cyan)"></div>
+          <div class="fw-name" style="color:var(--cyan)">RICH</div>
+          <div class="fw-count">6</div>
+          <div class="fw-bar"><div class="fw-bar-fill" style="width:60%;background:var(--cyan)"></div></div>
+        </div>
+        <div class="fw-item">
+          <div class="fw-dot" style="background:var(--blue)"></div>
+          <div class="fw-name" style="color:var(--blue)">UNIFIED</div>
+          <div class="fw-count">3</div>
+          <div class="fw-bar"><div class="fw-bar-fill" style="width:30%;background:var(--blue)"></div></div>
+        </div>
+        <div class="fw-item">
+          <div class="fw-dot" style="background:var(--green)"></div>
+          <div class="fw-name" style="color:var(--green)">TRADING</div>
+          <div class="fw-count">11</div>
+          <div class="fw-bar"><div class="fw-bar-fill" style="width:100%;background:var(--green)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skills list -->
+    <div class="panel" style="flex:1">
+      <div class="panel-head">Skill Registry · 25<div class="dot" style="background:var(--cyan)"></div></div>
+      <div class="panel-body" style="font-size:10px;line-height:1.8">
+        <div style="color:var(--gold);font-weight:600;margin-bottom:2px">BERKSHIRE</div>
+        <div style="color:var(--dim)"> value_checklist four_masters</div>
+        <div style="color:var(--dim)"> quality_screen devils_advocate</div>
+        <div style="color:var(--violet);font-weight:600;margin-top:6px;margin-bottom:2px">SERENITY</div>
+        <div style="color:var(--dim)"> map_supply_chain find_chokepoints</div>
+        <div style="color:var(--dim)"> design_in_detective thesis_scorecard</div>
+        <div style="color:var(--dim)"> capital_catalyst cross_market_scan</div>
+        <div style="color:var(--dim)"> geopolitical_impact challenge_thesis</div>
+        <div style="color:var(--cyan);font-weight:600;margin-top:6px;margin-bottom:2px">RICH</div>
+        <div style="color:var(--dim)"> fib_analysis drill_down</div>
+        <div style="color:var(--dim)"> risk_reward_calc rich_scorecard</div>
+        <div style="color:var(--dim)"> leaps_setup theta_harvest</div>
+        <div style="color:var(--blue);font-weight:600;margin-top:6px;margin-bottom:2px">UNIFIED</div>
+        <div style="color:var(--dim)"> full_analysis entry_plan</div>
+        <div style="color:var(--dim)"> position_check</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER — Canvas topology -->
+  <div class="center">
+    <canvas id="topoCanvas"></canvas>
+    <div class="canvas-overlay">
+      Skill Topology · Live <span id="nodeCount">25 nodes</span> · <span id="edgeCount">0 edges</span>
+    </div>
+    <div class="canvas-stats">
+      <div>THROUGHPUT <b id="throughput">0</b>/s</div>
+      <div>LATENCY <b id="latency">0</b>ms</div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div class="right-col">
+    <!-- Pipeline -->
+    <div class="panel">
+      <div class="panel-head">Execution Pipeline<div class="dot" style="background:var(--green)"></div></div>
+      <div class="panel-body">
+        <div class="pipe-step">
+          <div class="pipe-num active" id="ps1">01</div>
+          <div class="pipe-label">Scan<small>Market + Supply Chain</small></div>
+          <div class="pipe-status" style="color:var(--green)" id="pst1">READY</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-num" id="ps2">02</div>
+          <div class="pipe-label">Analyze<small>Berkshire + Serenity</small></div>
+          <div class="pipe-status" id="pst2" style="color:var(--dim)">IDLE</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-num" id="ps3">03</div>
+          <div class="pipe-label">Time<small>RICH Fibonacci</small></div>
+          <div class="pipe-status" id="pst3" style="color:var(--dim)">IDLE</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-num" id="ps4">04</div>
+          <div class="pipe-label">Validate<small>4-Quadrant Check</small></div>
+          <div class="pipe-status" id="pst4" style="color:var(--dim)">IDLE</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-num" id="ps5">05</div>
+          <div class="pipe-label">Size<small>Kelly / Risk Mgmt</small></div>
+          <div class="pipe-status" id="pst5" style="color:var(--dim)">IDLE</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-num" id="ps6">06</div>
+          <div class="pipe-label">Execute<small>Hyperliquid Fill</small></div>
+          <div class="pipe-status" id="pst6" style="color:var(--dim)">IDLE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Decision matrix -->
+    <div class="panel">
+      <div class="panel-head">Decision Matrix<div class="dot" style="background:var(--gold)"></div></div>
+      <div class="panel-body">
+        <div class="matrix">
+          <div class="mx-cell h"></div>
+          <div class="mx-cell h">RICH: GO</div>
+          <div class="mx-cell h">RICH: WAIT</div>
+          <div class="mx-cell rh" style="color:var(--violet)">SERENITY: BUY</div>
+          <div class="mx-cell mx-g">FULL</div>
+          <div class="mx-cell mx-y">WATCH</div>
+          <div class="mx-cell rh" style="color:var(--violet)">SERENITY: SKIP</div>
+          <div class="mx-cell mx-y">TACTIC</div>
+          <div class="mx-cell mx-r">PASS</div>
+        </div>
+        <div style="margin-top:10px;font-size:10px;color:var(--dim)">
+          <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
+            <span>Current quadrant</span><span style="color:var(--dim);font-weight:600" id="quadrant">--</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
+            <span>Serenity score</span><span id="serenityScore" style="color:var(--violet);font-weight:600">--/10</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)">
+            <span>RICH score</span><span id="richScore" style="color:var(--cyan);font-weight:600">--/10</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:3px 0">
+            <span>Berkshire gate</span><span id="berkGate" style="color:var(--gold);font-weight:600">--/6</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OODA -->
+    <div class="panel" style="flex:1">
+      <div class="panel-head">OODA Cycle<div class="dot" style="background:var(--blue)"></div></div>
+      <div class="panel-body" style="display:flex;flex-direction:column;gap:4px">
+        <div id="ooda0" class="pipe-step" style="padding:3px 0">
+          <div class="pipe-num active" style="font-size:10px;border-color:var(--blue);color:var(--blue);background:rgba(59,130,246,0.08)">O</div>
+          <div class="pipe-label" style="font-size:11px">Observe<small>Market + Account</small></div>
+        </div>
+        <div id="ooda1" class="pipe-step" style="padding:3px 0">
+          <div class="pipe-num" style="font-size:10px">O</div>
+          <div class="pipe-label" style="font-size:11px">Orient<small>Risk + Opportunity</small></div>
+        </div>
+        <div id="ooda2" class="pipe-step" style="padding:3px 0">
+          <div class="pipe-num" style="font-size:10px">D</div>
+          <div class="pipe-label" style="font-size:11px">Decide<small>Quadrant + Size</small></div>
+        </div>
+        <div id="ooda3" class="pipe-step" style="padding:3px 0">
+          <div class="pipe-num" style="font-size:10px">A</div>
+          <div class="pipe-label" style="font-size:11px">Act<small>Execute + Log</small></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM — Log -->
+  <div class="log-area">
+    <div class="panel-head">
+      Execution Log · Live
+      <span style="font-size:9px" id="logCount">0 events</span>
+    </div>
+    <div class="log-scroll" id="logScroll"></div>
+  </div>
+
+</div>
+
+<!-- Bottom bar -->
+<div class="bottombar">
+  <span>SERENITY x RICH x BERKSHIRE QUANT</span>
+  <span>|</span>
+  <span>Berkshire <span style="color:var(--gold)">4</span> + Serenity <span style="color:var(--violet)">8</span> + RICH <span style="color:var(--cyan)">6</span> + Unified <span style="color:var(--blue)">3</span> + Trading <span style="color:var(--green)">11</span></span>
+  <span style="margin-left:auto">CHOKEPOINT FUNDAMENTALS + FIBONACCI TIMING + VALUE INVESTING</span>
+</div>
+
+<script>
+// ─── CLOCK ───
+function tickClock(){
+  const d=new Date();
+  const h=String(d.getUTCHours()).padStart(2,'0');
+  const m=String(d.getUTCMinutes()).padStart(2,'0');
+  const s=String(d.getUTCSeconds()).padStart(2,'0');
+  document.getElementById('utcClock').textContent=`${h}:${m}:${s}`;
+}
+setInterval(tickClock,1000);tickClock();
+
+// ─── SIMULATED PRICES ───
+let btcPrice=78069+Math.random()*200;
+let ethPrice=2250+Math.random()*50;
+function tickPrices(){
+  btcPrice+=((Math.random()-.5)*40);
+  ethPrice+=((Math.random()-.5)*8);
+  document.getElementById('pBTC').textContent='$'+btcPrice.toFixed(2);
+  document.getElementById('pETH').textContent='$'+ethPrice.toFixed(2);
+}
+setInterval(tickPrices,2000);tickPrices();
+
+// ─── CANVAS TOPOLOGY ───
+const canvas=document.getElementById('topoCanvas');
+const ctx=canvas.getContext('2d');
+let W,H;
+const dpr=window.devicePixelRatio||1;
+
+function resize(){
+  const r=canvas.parentElement.getBoundingClientRect();
+  W=r.width;H=r.height;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',resize);resize();
+
+const COLORS={berkshire:'#e8a832',serenity:'#a87bff',rich:'#36d6b5',unified:'#3b82f6',trading:'#22c55e'};
+const SKILLS=[
+  {name:'value_checklist',g:'berkshire'},{name:'four_masters',g:'berkshire'},
+  {name:'quality_screen',g:'berkshire'},{name:'devils_advocate',g:'berkshire'},
+  {name:'map_supply_chain',g:'serenity'},{name:'find_chokepoints',g:'serenity'},
+  {name:'design_in_detective',g:'serenity'},{name:'thesis_scorecard',g:'serenity'},
+  {name:'capital_catalyst',g:'serenity'},{name:'cross_market_scan',g:'serenity'},
+  {name:'geopolitical_impact',g:'serenity'},{name:'challenge_thesis',g:'serenity'},
+  {name:'fib_analysis',g:'rich'},{name:'drill_down',g:'rich'},
+  {name:'risk_reward_calc',g:'rich'},{name:'rich_scorecard',g:'rich'},
+  {name:'leaps_setup',g:'rich'},{name:'theta_harvest',g:'rich'},
+  {name:'full_analysis',g:'unified'},{name:'entry_plan',g:'unified'},
+  {name:'position_check',g:'unified'},
+  {name:'get_account',g:'trading'},{name:'get_price',g:'trading'},
+  {name:'scan_pairs',g:'trading'},{name:'place_order',g:'trading'},
+];
+
+const GROUPS={berkshire:{x:0.2,y:0.3},serenity:{x:0.35,y:0.65},rich:{x:0.65,y:0.35},
+  unified:{x:0.5,y:0.5},trading:{x:0.8,y:0.65}};
+
+const nodes=SKILLS.map((s,i)=>{
+  const gc=GROUPS[s.g];
+  const angle=Math.random()*Math.PI*2;
+  const dist=30+Math.random()*60;
+  return{
+    x:0,y:0,
+    baseX:gc.x,baseY:gc.y,
+    ox:Math.cos(angle)*dist,oy:Math.sin(angle)*dist,
+    vx:0,vy:0,
+    r:3+Math.random()*2,
+    color:COLORS[s.g],
+    name:s.name,g:s.g,
+    pulse:0,phase:Math.random()*Math.PI*2
+  };
+});
+
+const edges=[];
+const groupNodes={};
+nodes.forEach((n,i)=>{
+  if(!groupNodes[n.g])groupNodes[n.g]=[];
+  groupNodes[n.g].push(i);
+});
+// intra-group edges
+Object.values(groupNodes).forEach(indices=>{
+  for(let i=0;i<indices.length;i++){
+    for(let j=i+1;j<indices.length;j++){
+      if(Math.random()<0.5)edges.push([indices[i],indices[j]]);
+    }
+  }
+});
+// inter-group edges (unified connects to all)
+const unifiedIdx=groupNodes.unified||[];
+Object.entries(groupNodes).forEach(([g,indices])=>{
+  if(g==='unified')return;
+  indices.forEach(i=>{
+    unifiedIdx.forEach(u=>{
+      if(Math.random()<0.4)edges.push([i,u]);
+    });
+  });
+});
+document.getElementById('edgeCount').textContent=edges.length+' edges';
+
+let particles=[];
+function spawnParticle(){
+  if(edges.length===0)return;
+  const e=edges[Math.floor(Math.random()*edges.length)];
+  const dir=Math.random()>0.5?1:0;
+  particles.push({a:e[dir],b:e[1-dir],t:0,speed:0.005+Math.random()*0.015,
+    color:nodes[e[dir]].color});
+}
+
+let time=0;
+function drawTopo(){
+  time+=0.016;
+  ctx.clearRect(0,0,W,H);
+
+  // update node positions
+  nodes.forEach(n=>{
+    n.x=n.baseX*W+n.ox+Math.sin(time*0.3+n.phase)*8;
+    n.y=n.baseY*H+n.oy+Math.cos(time*0.25+n.phase)*6;
+  });
+
+  // draw edges
+  ctx.lineWidth=0.5;
+  edges.forEach(([a,b])=>{
+    const na=nodes[a],nb=nodes[b];
+    ctx.strokeStyle=na.g===nb.g?na.color+'18':('#ffffff08');
+    ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb.x,nb.y);ctx.stroke();
+  });
+
+  // draw particles
+  particles.forEach(p=>{
+    p.t+=p.speed;
+    const na=nodes[p.a],nb=nodes[p.b];
+    const px=na.x+(nb.x-na.x)*p.t;
+    const py=na.y+(nb.y-na.y)*p.t;
+    ctx.fillStyle=p.color;
+    ctx.globalAlpha=1-p.t;
+    ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;
+  });
+  particles=particles.filter(p=>p.t<1);
+
+  // draw nodes
+  nodes.forEach(n=>{
+    // glow
+    const grad=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r*4);
+    grad.addColorStop(0,n.color+'30');
+    grad.addColorStop(1,n.color+'00');
+    ctx.fillStyle=grad;
+    ctx.beginPath();ctx.arc(n.x,n.y,n.r*4,0,Math.PI*2);ctx.fill();
+    // core
+    ctx.fillStyle=n.color;
+    ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,Math.PI*2);ctx.fill();
+    // pulse
+    if(n.pulse>0){
+      ctx.strokeStyle=n.color;
+      ctx.lineWidth=1;
+      ctx.globalAlpha=n.pulse;
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r+10*(1-n.pulse),0,Math.PI*2);ctx.stroke();
+      ctx.globalAlpha=1;
+      n.pulse-=0.02;
+    }
+  });
+
+  // group labels
+  Object.entries(GROUPS).forEach(([g,pos])=>{
+    ctx.fillStyle=COLORS[g]+'80';
+    ctx.font='600 9px "SF Mono","Fira Code",monospace';
+    ctx.textAlign='center';
+    ctx.fillText(g.toUpperCase(),pos.x*W,pos.y*H-70);
+  });
+
+  // spawn particles
+  if(Math.random()<0.3)spawnParticle();
+
+  requestAnimationFrame(drawTopo);
+}
+drawTopo();
+
+// random node pulse
+setInterval(()=>{
+  const n=nodes[Math.floor(Math.random()*nodes.length)];
+  n.pulse=1;
+},800);
+
+// ─── EXECUTION LOG ───
+const logScroll=document.getElementById('logScroll');
+let logEventCount=0;
+const LOG_EVENTS=[
+  ['SCAN','scan_pairs: spread BTC 0.8bps, ETH 1.2bps, SOL 3.1bps'],
+  ['IN','full_analysis SIVE — thesis: CPO laser chokepoint, direction: long'],
+  ['EXEC','thesis_scorecard SIVE — chokepoint 9/10, production 7/10, catalyst 8/10'],
+  ['WIN','fib_analysis NVDA — Golden Zone $118.40, R:R 3.2:1, confidence HIGH'],
+  ['SCAN','cross_market_scan CPO激光源 — found 12 candidates across 6 markets'],
+  ['IN','drill_down BESI.AS — monthly UP, weekly UP, daily PULLBACK, 4H REVERSAL'],
+  ['EXEC','rich_scorecard BESI.AS — Fib 8/10, resonance 7/10, R:R 9/10'],
+  ['SKIP','Convergence only 42% — skip, waiting for 60%+ alignment'],
+  ['IN','value_checklist 腾讯 — gate 1/6 passed, running remaining gates'],
+  ['WIN','four_masters 拼多多 — DYP 4.2/5, Buffett 3.8/5, Munger 3.5/5, LiLu 3.0/5'],
+  ['EXEC','quality_screen 腾讯,美团,拼多多 — 2/3 passed, 美团 exemption A applied'],
+  ['SCAN','get_funding_rates BTC — current 0.0103%, 8h avg 0.0087%, opportunity detected'],
+  ['IN','devils_advocate NVDA — 5 failure paths identified, 3 historical analogs matched'],
+  ['ERR','place_order SOL LONG rejected — insufficient margin, need $12.40 more'],
+  ['WIN','entry_plan SIVE long — entry $4.20, stop $3.65, T1 $5.80, T2 $7.10, R:R 2.9:1'],
+  ['EXEC','position_check AAOI — thesis INTACT, technical HEALTHY, action: HOLD+ADD at Fib 0.618'],
+  ['SCAN','geopolitical_impact 美国对华芯片出口管制 — 8 supply chains affected'],
+  ['IN','capital_catalyst_stack Sivers — dual listing catalyst +35% probability'],
+  ['SKIP','risk_reward_calc: R:R 1.4:1 < 2.0 threshold — IRON RULE: no trade'],
+  ['WIN','leaps_setup AAOI — Jan2027 $15C, delta 0.72, cost basis $3.20, pyramid plan ready'],
+];
+const TAG_MAP={SCAN:'tag-scan',IN:'tag-in',WIN:'tag-win',SKIP:'tag-skip',ERR:'tag-err',EXEC:'tag-exec'};
+
+function addLogEntry(){
+  const evt=LOG_EVENTS[Math.floor(Math.random()*LOG_EVENTS.length)];
+  const now=new Date();
+  const ts=String(now.getUTCHours()).padStart(2,'0')+':'+
+    String(now.getUTCMinutes()).padStart(2,'0')+':'+
+    String(now.getUTCSeconds()).padStart(2,'0')+'.'+
+    String(now.getUTCMilliseconds()).padStart(3,'0');
+  const div=document.createElement('div');
+  div.className='log-line';
+  div.innerHTML=`<span class="ts">${ts}</span><span class="tag ${TAG_MAP[evt[0]]||'tag-in'}">${evt[0]}</span>${evt[1]}`;
+  logScroll.appendChild(div);
+  if(logScroll.children.length>100)logScroll.removeChild(logScroll.firstChild);
+  logScroll.scrollTop=logScroll.scrollHeight;
+  logEventCount++;
+  document.getElementById('logCount').textContent=logEventCount+' events';
+}
+setInterval(addLogEntry,1500+Math.random()*2000);
+for(let i=0;i<6;i++)addLogEntry();
+
+// ─── PIPELINE ANIMATION ───
+let pipeStep=0;
+function cyclePipeline(){
+  for(let i=1;i<=6;i++){
+    const num=document.getElementById('ps'+i);
+    const st=document.getElementById('pst'+i);
+    if(i-1<pipeStep){
+      num.classList.add('active');
+      st.style.color='var(--green)';st.textContent='DONE';
+    } else if(i-1===pipeStep){
+      num.classList.add('active');
+      st.style.color='var(--gold)';st.textContent='ACTIVE';
+    } else {
+      num.classList.remove('active');
+      st.style.color='var(--dim)';st.textContent='IDLE';
+    }
+  }
+  pipeStep=(pipeStep+1)%7;
+}
+setInterval(cyclePipeline,3000);
+
+// ─── OODA ANIMATION ───
+let oodaStep=0;
+function cycleOODA(){
+  for(let i=0;i<4;i++){
+    const el=document.getElementById('ooda'+i);
+    const num=el.querySelector('.pipe-num');
+    if(i===oodaStep){
+      num.classList.add('active');
+      num.style.borderColor='var(--blue)';num.style.color='var(--blue)';
+      num.style.background='rgba(59,130,246,0.08)';
+    } else {
+      num.classList.remove('active');
+      num.style.borderColor='';num.style.color='';num.style.background='';
+    }
+  }
+  oodaStep=(oodaStep+1)%4;
+}
+setInterval(cycleOODA,2500);
+
+// ─── THROUGHPUT SIMULATION ───
+setInterval(()=>{
+  document.getElementById('throughput').textContent=Math.floor(8+Math.random()*12);
+  document.getElementById('latency').textContent=Math.floor(80+Math.random()*150);
+},3000);
+
+// ─── HEALTH CHECK ───
+async function checkHealth(){
+  try{
+    const r=await fetch('/health');
+    const d=await r.json();
+    document.getElementById('liveStatus').textContent='ONLINE';
+  }catch{
+    document.getElementById('liveStatus').textContent='OFFLINE';
+    document.getElementById('liveStatus').style.color='var(--red)';
+  }
+}
+checkHealth();setInterval(checkHealth,15000);
+</script>
+</body>
+</html>

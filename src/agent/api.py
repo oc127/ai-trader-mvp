@@ -92,6 +92,11 @@ async def system_info() -> dict:
     }
 
 
+@app.get("/terminal")
+async def terminal() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "terminal.html")
+
+
 @app.get("/dashboard")
 async def dashboard() -> FileResponse:
     return FileResponse(_STATIC_DIR / "dashboard.html")
