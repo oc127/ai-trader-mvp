@@ -410,6 +410,7 @@ body {
   <div class="topbar-left">
     <div class="topbar-logo">SERENITY <span>x</span> RICH <span>QUANT</span></div>
     <div class="topbar-tags">
+      <span class="tag" style="background:rgba(210,153,34,0.15);color:var(--yellow)">BERKSHIRE</span>
       <span class="tag serenity">SERENITY</span>
       <span class="tag rich">RICH</span>
       <span class="tag unified">OODA</span>
@@ -439,8 +440,8 @@ body {
     </div>
     <div class="stat-card green">
       <div class="stat-label">Total Tools</div>
-      <div class="stat-value" id="totalTools">31</div>
-      <div class="stat-sub">8 trading + 17 research + 6 unified</div>
+      <div class="stat-value" id="totalTools">35</div>
+      <div class="stat-sub">8 trading + 21 research + 6 unified</div>
     </div>
     <div class="stat-card purple">
       <div class="stat-label">Serenity Skills</div>
@@ -451,6 +452,11 @@ body {
       <div class="stat-label">RICH Skills</div>
       <div class="stat-value">6</div>
       <div class="stat-sub">Fibonacci timing</div>
+    </div>
+    <div class="stat-card" style="--top-color:var(--yellow)">
+      <div class="stat-label">Berkshire Skills</div>
+      <div class="stat-value" style="color:var(--yellow)">4</div>
+      <div class="stat-sub">Four Masters value investing</div>
     </div>
     <div class="stat-card yellow">
       <div class="stat-label">Trades Logged</div>
@@ -540,6 +546,13 @@ body {
         <div class="skill-item"><div class="skill-dot unified"></div><span class="skill-name">entry_plan</span><span class="skill-desc">— Executable trade plan</span></div>
         <div class="skill-item"><div class="skill-dot unified"></div><span class="skill-name">position_check</span><span class="skill-desc">— Dual-lens position audit</span></div>
       </div>
+      <div class="skill-group">
+        <div class="skill-group-title" style="color:var(--yellow)">BERKSHIRE — Four Masters Value Investing</div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">value_checklist</span><span class="skill-desc">— Buffett 6-gate checklist</span></div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">four_masters</span><span class="skill-desc">— 4-perspective analysis</span></div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">quality_screen</span><span class="skill-desc">— 7-metric quality filter</span></div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">devils_advocate</span><span class="skill-desc">— Munger inversion analysis</span></div>
+      </div>
     </div>
   </div>
 
@@ -619,6 +632,10 @@ body {
           <div class="tool-chip" style="border-color:var(--cyan);color:var(--cyan)" onclick="goChat('用 fib_analysis 分析 NVDA，趋势 up')">Fib Analysis</div>
           <div class="tool-chip" style="border-color:var(--cyan);color:var(--cyan)" onclick="goChat('用 drill_down 分析 BESI.AS')">Drill Down</div>
           <div class="tool-chip" style="border-color:var(--accent);color:var(--accent)" onclick="goChat('用 full_analysis 分析 SIVE，论点：CPO激光chokepoint，方向 long')">Full Analysis</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 value_checklist 评估腾讯')">Checklist</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 four_masters 分析拼多多')">Four Masters</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 quality_screen 筛选 腾讯,美团,拼多多,阿里')">Quality Screen</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 devils_advocate 挑战 NVDA，多头论点：AI算力需求持续爆发')">Devil Advocate</div>
         </div>
       </div>
     </div>
@@ -633,33 +650,37 @@ body {
     <div class="card-body">
       <div class="arch-flow">
         <div class="arch-block">
+          <h4 style="color:var(--yellow)">Berkshire</h4>
+          <ul>
+            <li>Value checklist (6 gates)</li>
+            <li>Four masters analysis</li>
+            <li>Quality screen (7 metrics)</li>
+            <li>Devil's advocate</li>
+          </ul>
+        </div>
+        <div class="arch-connector">+</div>
+        <div class="arch-block">
           <h4 class="purple">Serenity</h4>
           <ul>
             <li>Supply chain mapping</li>
             <li>Chokepoint identification</li>
             <li>Design-in detection</li>
-            <li>Capital catalyst stack</li>
-            <li>Geopolitical mapping</li>
-            <li>Devil's advocate</li>
-            <li>Cross-market scan</li>
             <li>6-dim scorecard</li>
           </ul>
         </div>
         <div class="arch-connector">→</div>
         <div class="arch-block">
-          <h4 class="cyan">RICH / TradingWarz</h4>
+          <h4 class="cyan">RICH</h4>
           <ul>
             <li>Fibonacci analysis</li>
             <li>Multi-TF drill down</li>
             <li>R:R calculation</li>
-            <li>LEAPS pyramid</li>
-            <li>Theta harvest</li>
             <li>4-dim scorecard</li>
           </ul>
         </div>
         <div class="arch-connector">→</div>
         <div class="arch-block">
-          <h4 class="blue">Unified Pipeline</h4>
+          <h4 class="blue">Unified</h4>
           <ul>
             <li>full_analysis</li>
             <li>entry_plan</li>
@@ -671,9 +692,8 @@ body {
           <h4 class="green">Execution</h4>
           <ul>
             <li>Hyperliquid API</li>
-            <li>Paper / Live mode</li>
+            <li>Paper / Live</li>
             <li>Trade journal</li>
-            <li>Memory & learning</li>
           </ul>
         </div>
       </div>

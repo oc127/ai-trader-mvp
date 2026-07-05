@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from src.agent.llm_client import LLMClient
 from src.agent.memory import Memory
+from src.agent.skills.berkshire import BERKSHIRE_SKILL_DEFINITIONS, BerkshireSkills
 from src.agent.skills.rich import RICH_SKILL_DEFINITIONS, RichSkills
 from src.agent.skills.serenity import SERENITY_SKILL_DEFINITIONS, SerenitySkills
 from src.agent.skills.unified import UNIFIED_SKILL_DEFINITIONS, UnifiedSkills
@@ -50,6 +51,13 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 - LEAPS 期权金字塔：长期期权低成本建仓+分层加仓
 - Theta 收割：高IV卖期权+Fib支撑位双重安全边际
 - RICH 综合评分：Fib位置/共振度/风险收益比/期权可行性
+
+## 价值投资研究（Berkshire 四大师框架 — 价值派）
+基于巴菲特、芒格、段永平、李录四位大师的方法论：
+- value_checklist: 巴菲特六关买入前Checklist — 能力圈→好生意→护城河→管理层→安全边际→纪律
+- four_masters: 四大师并行分析 — 段永平看生意本质、巴菲特看财务护城河、芒格反向思考、李录看文明趋势
+- quality_screen: 去劣筛选 — 7条硬指标快速排除非一流公司（ROE/FCF/利息覆盖/毛利率/现金流质量/净利率/稀释）
+- devils_advocate: 芒格式魔鬼代言人 — 强制列出所有失败路径、历史类比、认知偏误
 
 ## 统一决策系统（Serenity × RICH 管线）
 - full_analysis: 一键跑完两套系统 — Serenity选股评分 → RICH技术评分 → 四象限综合决策
@@ -94,12 +102,14 @@ SYSTEM_PROMPT = """你是一个专业的加密货币交易 Agent，连接到 Hyp
 _SERENITY_NAMES = {d["name"] for d in SERENITY_SKILL_DEFINITIONS}
 _RICH_NAMES = {d["name"] for d in RICH_SKILL_DEFINITIONS}
 _UNIFIED_NAMES = {d["name"] for d in UNIFIED_SKILL_DEFINITIONS}
-SKILL_NAMES = _SERENITY_NAMES | _RICH_NAMES | _UNIFIED_NAMES
+_BERKSHIRE_NAMES = {d["name"] for d in BERKSHIRE_SKILL_DEFINITIONS}
+SKILL_NAMES = _SERENITY_NAMES | _RICH_NAMES | _UNIFIED_NAMES | _BERKSHIRE_NAMES
 ALL_TOOL_DEFINITIONS = (
     TOOL_DEFINITIONS
     + SERENITY_SKILL_DEFINITIONS
     + RICH_SKILL_DEFINITIONS
     + UNIFIED_SKILL_DEFINITIONS
+    + BERKSHIRE_SKILL_DEFINITIONS
 )
 
 
@@ -115,6 +125,7 @@ class TradingAgent:
         self._serenity = SerenitySkills(model=model)
         self._rich = RichSkills(model=model)
         self._unified = UnifiedSkills(model=model)
+        self._berkshire = BerkshireSkills(model=model)
         self._memory = memory or Memory()
         self._history: list[dict] = []
         self._interaction_count = 0
@@ -143,6 +154,8 @@ class TradingAgent:
                     result = self._serenity.execute(tc.name, tc.arguments)
                 elif tc.name in _RICH_NAMES:
                     result = self._rich.execute(tc.name, tc.arguments)
+                elif tc.name in _BERKSHIRE_NAMES:
+                    result = self._berkshire.execute(tc.name, tc.arguments)
                 else:
                     result = self._tools.execute(tc.name, tc.arguments)
                 tool_results.append({
