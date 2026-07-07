@@ -1,0 +1,333 @@
+"""Polymarket CLOB V2 API client.
+
+Uses py-clob-client-v2 (the V1 SDK is archived and non-functional).
+Docs: https://docs.polymarket.com/
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+import time
+from typing import Any, Optional
+
+from src.logger import get_logger
+from src.polymarket.types import (
+    Market,
+    Order,
+    OrderBook,
+    OrderStatus,
+    Outcome,
+    Side,
+    TradeResult,
+)
+
+log = get_logger(__name__)
+
+GAMMA_API = "https://gamma-api.polymarket.com"
+CLOB_API = "https://clob.polymarket.com"
+
+
+class PolymarketClient:
+    """REST client for Polymarket CLOB V2 + Gamma APIs."""
+
+    def __init__(self, cfg: dict) -> None:
+        pm_cfg = cfg.get("polymarket", {})
+        self._api_key = pm_cfg.get("api_key") or os.getenv("POLYMARKET_API_KEY", "")
+        self._api_secret = pm_cfg.get("api_secret") or os.getenv("POLYMARKET_API_SECRET", "")
+        self._api_passphrase = pm_cfg.get("api_passphrase") or os.getenv("POLYMARKET_API_PASSPHRASE", "")
+        self._private_key = pm_cfg.get("private_key") or os.getenv("POLYMARKET_PRIVATE_KEY", "")
+        self._funder = pm_cfg.get("funder_address") or os.getenv("POLYMARKET_FUNDER_ADDRESS", "")
+        self._chain_id = pm_cfg.get("chain_id", 137)
+        self._signature_type = pm_cfg.get("signature_type", 2)  # GNOSIS_SAFE for proxy wallets
+
+        self._clob_client: Any = None
+        self._rate_limit_delay = pm_cfg.get("rate_limit_delay", 0.2)
+        self._last_request_ts = 0.0
+
+        # heartbeat thread — required or all orders get cancelled
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._heartbeat_running = False
+
+    def _init_clob(self) -> Any:
+        """Lazy-init the official CLOB V2 client."""
+        if self._clob_client is not None:
+            return self._clob_client
+
+        try:
+            from py_clob_client_v2 import ClobClient
+
+            kwargs: dict[str, Any] = {
+                "host": CLOB_API,
+                "chain_id": self._chain_id,
+                "key": self._private_key,
+                "signature_type": self._signature_type,
+            }
+            if self._funder:
+                kwargs["funder"] = self._funder
+
+            self._clob_client = ClobClient(**kwargs)
+
+            if self._api_key and self._api_secret and self._api_passphrase:
+                self._clob_client.set_api_creds({
+                    "apiKey": self._api_key,
+                    "secret": self._api_secret,
+                    "passphrase": self._api_passphrase,
+                })
+            else:
+                creds = self._clob_client.create_or_derive_api_creds()
+                log.info(f"Derived API creds: key={creds.get('apiKey', '')[:8]}...")
+
+            log.info("CLOB V2 client initialized")
+            return self._clob_client
+        except ImportError:
+            log.error("py-clob-client-v2 not installed: pip install py-clob-client-v2")
+            raise
+        except Exception:
+            log.exception("Failed to init CLOB V2 client")
+            raise
+
+    def _throttle(self) -> None:
+        elapsed = time.monotonic() - self._last_request_ts
+        if elapsed < self._rate_limit_delay:
+            time.sleep(self._rate_limit_delay - elapsed)
+        self._last_request_ts = time.monotonic()
+
+    # ── Heartbeat (critical: without this, all orders are auto-cancelled) ──
+
+    def start_heartbeat(self) -> None:
+        """Start background heartbeat thread (POST /v1/heartbeats every 10s)."""
+        if self._heartbeat_running:
+            return
+        self._heartbeat_running = True
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._heartbeat_thread.start()
+        log.info("Heartbeat thread started")
+
+    def stop_heartbeat(self) -> None:
+        self._heartbeat_running = False
+
+    def _heartbeat_loop(self) -> None:
+        while self._heartbeat_running:
+            try:
+                client = self._init_clob()
+                client.post_heartbeat()
+            except Exception:
+                log.debug("Heartbeat failed (will retry)")
+            time.sleep(10)
+
+    # ── Market data (Gamma API — no auth needed) ──
+
+    def get_markets(
+        self,
+        active: bool = True,
+        limit: int = 100,
+        min_volume: float = 0,
+        min_liquidity: float = 0,
+    ) -> list[Market]:
+        """Fetch markets from Gamma API."""
+        import requests
+
+        self._throttle()
+        params: dict[str, Any] = {"limit": limit, "active": active}
+        resp = requests.get(f"{GAMMA_API}/markets", params=params, timeout=15)
+        resp.raise_for_status()
+        markets: list[Market] = []
+
+        for m in resp.json():
+            tokens = m.get("clobTokenIds") or m.get("tokens", [])
+            if not tokens or len(tokens) < 2:
+                continue
+
+            prices_str = m.get("outcomePrices", "0.5,0.5")
+            if isinstance(prices_str, str):
+                parts = prices_str.split(",")
+                yes_price = float(parts[0]) if parts else 0.5
+            elif isinstance(prices_str, list):
+                yes_price = float(prices_str[0]) if prices_str else 0.5
+            else:
+                yes_price = 0.5
+
+            no_price = 1.0 - yes_price
+            vol = float(m.get("volume", 0) or 0)
+            vol_24h = float(m.get("volume24hr", 0) or 0)
+            liq = float(m.get("liquidity", 0) or 0)
+
+            if vol < min_volume or liq < min_liquidity:
+                continue
+
+            yes_tid = tokens[0] if isinstance(tokens[0], str) else str(tokens[0])
+            no_tid = tokens[1] if isinstance(tokens[1], str) else str(tokens[1])
+
+            markets.append(Market(
+                condition_id=str(m.get("conditionId", m.get("condition_id", ""))),
+                question=str(m.get("question", "")),
+                slug=str(m.get("slug", "")),
+                yes_token_id=yes_tid,
+                no_token_id=no_tid,
+                yes_price=yes_price,
+                no_price=no_price,
+                volume=vol,
+                volume_24h=vol_24h,
+                liquidity=liq,
+                end_date=m.get("endDate") or m.get("end_date_iso"),
+                category=str(m.get("groupItemTitle", "") or m.get("category", "")),
+                active=bool(m.get("active", True)),
+            ))
+
+        return markets
+
+    def get_orderbook(self, token_id: str, market: Market) -> OrderBook:
+        """Fetch order book from CLOB API."""
+        import requests
+
+        self._throttle()
+        resp = requests.get(f"{CLOB_API}/book", params={"token_id": token_id}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        bids = [(float(o["price"]), float(o["size"])) for o in data.get("bids", [])]
+        asks = [(float(o["price"]), float(o["size"])) for o in data.get("asks", [])]
+
+        bids.sort(key=lambda x: -x[0])
+        asks.sort(key=lambda x: x[0])
+
+        best_bid = bids[0][0] if bids else 0.0
+        best_ask = asks[0][0] if asks else 1.0
+        spread = best_ask - best_bid
+        mid = (best_bid + best_ask) / 2.0
+
+        return OrderBook(market=market, bids=bids, asks=asks, spread=spread, mid_price=mid)
+
+    def get_tick_size(self, token_id: str) -> float:
+        """Get tick size for a market (changes when price crosses 0.96 or 0.04)."""
+        import requests
+
+        self._throttle()
+        resp = requests.get(f"{CLOB_API}/tick-size", params={"token_id": token_id}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return float(data.get("minimum_tick_size", 0.01))
+
+    # ── Trading (requires auth + heartbeat) ──
+
+    def place_order(
+        self,
+        token_id: str,
+        side: Side,
+        price: float,
+        size: float,
+    ) -> TradeResult:
+        """Place a GTC limit order on the CLOB V2."""
+        client = self._init_clob()
+        self._throttle()
+
+        try:
+            from py_clob_client_v2 import OrderArgs, OrderType
+            from py_clob_client_v2 import Side as ClobSide
+
+            clob_side = ClobSide.BUY if side == Side.BUY else ClobSide.SELL
+            resp = client.create_and_post_order(
+                order_args=OrderArgs(
+                    token_id=token_id,
+                    price=price,
+                    size=size,
+                    side=clob_side,
+                ),
+                order_type=OrderType.GTC,
+            )
+            order_id = resp.get("orderID", resp.get("id", ""))
+            log.info(f"Order placed: {side.value} {size}@{price} token={token_id[:12]}... id={order_id}")
+            return TradeResult(success=True, order_id=str(order_id))
+        except Exception as e:
+            log.error(f"Order failed: {e}")
+            return TradeResult(success=False, error=str(e))
+
+    def place_market_order(
+        self,
+        token_id: str,
+        side: Side,
+        amount: float,
+    ) -> TradeResult:
+        """Place a FOK (fill-or-kill) market order."""
+        client = self._init_clob()
+        self._throttle()
+
+        try:
+            from py_clob_client_v2 import OrderArgs, OrderType
+            from py_clob_client_v2 import Side as ClobSide
+
+            clob_side = ClobSide.BUY if side == Side.BUY else ClobSide.SELL
+            worst_price = 0.99 if side == Side.BUY else 0.01
+            resp = client.create_and_post_order(
+                order_args=OrderArgs(
+                    token_id=token_id,
+                    price=worst_price,
+                    size=amount,
+                    side=clob_side,
+                ),
+                order_type=OrderType.FOK,
+            )
+            order_id = resp.get("orderID", resp.get("id", ""))
+            log.info(f"Market order: {side.value} ${amount} token={token_id[:12]}... id={order_id}")
+            return TradeResult(success=True, order_id=str(order_id))
+        except Exception as e:
+            log.error(f"Market order failed: {e}")
+            return TradeResult(success=False, error=str(e))
+
+    def cancel_order(self, order_id: str) -> bool:
+        client = self._init_clob()
+        self._throttle()
+        try:
+            client.cancel(order_id)
+            log.info(f"Cancelled order {order_id}")
+            return True
+        except Exception as e:
+            log.error(f"Cancel failed for {order_id}: {e}")
+            return False
+
+    def cancel_all(self) -> int:
+        client = self._init_clob()
+        self._throttle()
+        try:
+            result = client.cancel_all()
+            count = len(result) if isinstance(result, list) else 0
+            log.info(f"Cancelled {count} orders")
+            return count
+        except Exception as e:
+            log.error(f"Cancel all failed: {e}")
+            return 0
+
+    def get_open_orders(self) -> list[Order]:
+        client = self._init_clob()
+        self._throttle()
+        try:
+            raw = client.get_orders()
+            orders: list[Order] = []
+            for o in (raw or []):
+                orders.append(Order(
+                    order_id=str(o.get("id", "")),
+                    market_condition_id=str(o.get("asset_id", "")),
+                    token_id=str(o.get("token_id", o.get("asset_id", ""))),
+                    side=Side.BUY if str(o.get("side", "")).upper() == "BUY" else Side.SELL,
+                    price=float(o.get("price", 0)),
+                    size=float(o.get("original_size", o.get("size", 0))),
+                    outcome=Outcome.YES,
+                    status=OrderStatus.LIVE,
+                    filled_size=float(o.get("size_matched", 0)),
+                ))
+            return orders
+        except Exception as e:
+            log.error(f"Failed to get orders: {e}")
+            return []
+
+    def get_balance(self) -> float:
+        """Get pUSD balance (Polymarket's USDC wrapper on Polygon)."""
+        client = self._init_clob()
+        self._throttle()
+        try:
+            bal = client.get_balance_allowance()
+            return float(bal.get("balance", 0)) if isinstance(bal, dict) else 0.0
+        except Exception:
+            log.exception("Failed to get balance")
+            return 0.0

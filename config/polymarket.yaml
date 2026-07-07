@@ -1,0 +1,65 @@
+# Polymarket Bot Configuration
+# Copy to config/polymarket_live.yaml and adjust for live trading
+
+polymarket:
+  paper_mode: true
+  paper_balance: 10000.0
+
+  # Cycle timing
+  cycle_interval_seconds: 30     # seconds between trade cycles
+  scan_interval_seconds: 300     # seconds between full market scans
+  max_trades_per_cycle: 2
+
+  # API (set in .env, not here)
+  # api_key: ...
+  # api_secret: ...
+  # api_passphrase: ...
+  # private_key: ...
+  chain_id: 137  # Polygon mainnet
+
+  rate_limit_delay: 0.2  # seconds between API calls
+
+  # Active strategies
+  strategies:
+    - mean_reversion
+    # - edge           # requires model_probs
+    # - market_maker   # requires more capital
+
+  # Scanner settings
+  scanner:
+    min_edge: 0.05          # 5% minimum edge to flag
+    min_volume: 10000       # $10K minimum market volume
+    min_liquidity: 5000     # $5K minimum liquidity
+    max_price: 0.90         # skip near-certain outcomes
+    min_price: 0.10         # skip near-impossible outcomes
+    market_limit: 200
+
+  # Strategy settings
+  strategy:
+    min_edge: 0.05
+    reversion_size: 0.08    # mean reversion adjustment
+    vol_liq_threshold: 2.0  # volume/liquidity ratio for thin markets
+
+  # Market maker settings (if strategy includes market_maker)
+  market_maker:
+    half_spread: 0.02       # 2% half-spread
+    min_liquidity: 10000
+    price_band_low: 0.25
+    price_band_high: 0.75
+
+  # Risk management
+  risk:
+    max_position_usd: 500       # max per single position
+    max_total_exposure_usd: 2000  # total exposure cap
+    max_single_market_pct: 0.20  # 20% max in one market
+    max_daily_trades: 50
+    max_daily_loss_usd: 500
+    min_kelly: 0.02
+    max_kelly: 0.10              # cap even if Kelly says more
+    min_edge: 0.05
+    min_confidence: "low"
+    max_errors_before_halt: 10
+
+logging:
+  level: INFO
+  format: text

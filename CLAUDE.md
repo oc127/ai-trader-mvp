@@ -16,6 +16,9 @@ Automated funding rate arbitrage system on Hyperliquid.
 - `src/risk/` — Position limits, circuit breakers
 - `src/monitor/` — PnL tracking, Telegram alerts
 - `src/backtest/` — Historical replay engine
+- `src/quant/` — Quantitative toolkit (EV calculator, noise detector, portfolio X-ray, position optimizer)
+- `src/polymarket/` — Polymarket prediction market bot (CLOB V2 client, scanner, strategies, risk, paper mode)
+- `src/agent/skills/` — AI research skills (Serenity, RICH, Berkshire, Unified)
 - `config/` — YAML configuration files
 - `tests/` — pytest test suite
 - `scripts/` — CLI utilities
@@ -26,6 +29,9 @@ Automated funding rate arbitrage system on Hyperliquid.
 - `uv run ruff check src/` — Lint
 - `uv run python scripts/fetch_historical.py` — Fetch historical funding data
 - `uv run python scripts/run_backtest.py` — Run backtest
+- `python scripts/run_polymarket.py` — Run Polymarket bot (paper mode)
+- `python scripts/run_polymarket.py --scan` — Scan Polymarket opportunities
+- `python scripts/run_polymarket.py --live` — Run Polymarket bot (live, requires API keys)
 
 ## Conventions
 - All amounts in USDC unless noted
