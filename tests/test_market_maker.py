@@ -1,291 +1,328 @@
-"""Tests for HLMarketMaker strategy — 5-tier quoting, inventory skew, book imbalance."""
+"""Tests for HFT market maker — quotes, inventory, skew, flatten, circuit breakers."""
 
 from __future__ import annotations
 
-from src.strategy.market_maker import HLMarketMaker
+import time
+
+from src.polymarket.market_maker import HighFreqMarketMaker, MarketInventory, MakerConfig, QuotePair
+from src.polymarket.types import Market
 
 
-def _make_cfg(overrides: dict | None = None) -> dict:
-    """Build a minimal config with MM enabled."""
-    mm_cfg = {
-        "enabled": True,
-        "coins": ["BTC", "ETH"],
-        "spread_bps": 3,
-        "num_tiers": 5,
-        "tier_spacing_bps": 2,
-        "tier_size_multiplier": 1.5,
-        "base_order_usd": 500,
-        "max_inventory_usd": 50000,
-        "volatility_pause_pct": 0.01,
-        "volatility_cooldown_sec": 120,
+def _cfg(**overrides) -> dict:
+    base = {
+        "polymarket": {
+            "hf_market_maker": {},
+        }
     }
     if overrides:
-        mm_cfg.update(overrides)
-    return {"strategy": {"market_maker": mm_cfg}}
-
-
-# --- Test 1: correct number of tiers ---
-
-def test_generates_correct_number_of_tiers():
-    mm = HLMarketMaker(_make_cfg())
-    sig = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-
-    assert sig.action == "quote_refresh"
-    buy_quotes = [q for q in sig.quotes if q.side == "buy"]
-    sell_quotes = [q for q in sig.quotes if q.side == "sell"]
-    assert len(buy_quotes) == 5
-    assert len(sell_quotes) == 5
-
-
-# --- Test 2: bid below ask on each tier ---
-
-def test_bid_below_ask_each_tier():
-    mm = HLMarketMaker(_make_cfg())
-    sig = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-
-    buy_quotes = sorted([q for q in sig.quotes if q.side == "buy"], key=lambda q: q.tier)
-    sell_quotes = sorted([q for q in sig.quotes if q.side == "sell"], key=lambda q: q.tier)
-
-    for tier in range(5):
-        bid = buy_quotes[tier]
-        ask = sell_quotes[tier]
-        assert bid.price < ask.price, f"Tier {tier}: bid {bid.price} >= ask {ask.price}"
-        assert bid.tier == tier
-        assert ask.tier == tier
-
-
-# --- Test 3: tier sizes increase by multiplier ---
-
-def test_tier_sizes_increase_by_multiplier():
-    mm = HLMarketMaker(_make_cfg())
-    sig = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-
-    buy_quotes = sorted([q for q in sig.quotes if q.side == "buy"], key=lambda q: q.tier)
-
-    for i in range(1, 5):
-        ratio = buy_quotes[i].size / buy_quotes[i - 1].size
-        assert abs(ratio - 1.5) < 0.01, f"Tier {i}: size ratio {ratio} != 1.5"
-
-    # Verify tier 0 size in USD (500 USD at 60000 price = 500/60000 coins)
-    expected_size_0 = 500 / 60000.0
-    assert abs(buy_quotes[0].size - expected_size_0) < 1e-8
-
-
-# --- Test 4: inventory skew shifts prices ---
-
-def test_inventory_skew_shifts_prices():
-    mm = HLMarketMaker(_make_cfg())
-
-    # No inventory: symmetric quotes
-    sig_neutral = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-    buy_neutral = [q for q in sig_neutral.quotes if q.side == "buy" and q.tier == 0][0]
-    sell_neutral = [q for q in sig_neutral.quotes if q.side == "sell" and q.tier == 0][0]
-    mid_neutral = (buy_neutral.price + sell_neutral.price) / 2
-
-    # Long inventory: skew should lower mid (encourage sells)
-    mm._inventory["BTC"] = 25000.0  # half of max
-    sig_long = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 25000.0)
-    buy_long = [q for q in sig_long.quotes if q.side == "buy" and q.tier == 0][0]
-    sell_long = [q for q in sig_long.quotes if q.side == "sell" and q.tier == 0][0]
-    mid_long = (buy_long.price + sell_long.price) / 2
-
-    assert mid_long < mid_neutral, "Long inventory should lower quoted mid"
-
-    # Short inventory: skew should raise mid (encourage buys)
-    mm._inventory["BTC"] = -25000.0
-    sig_short = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, -25000.0)
-    buy_short = [q for q in sig_short.quotes if q.side == "buy" and q.tier == 0][0]
-    sell_short = [q for q in sig_short.quotes if q.side == "sell" and q.tier == 0][0]
-    mid_short = (buy_short.price + sell_short.price) / 2
-
-    assert mid_short > mid_neutral, "Short inventory should raise quoted mid"
-
-
-# --- Test 5: max inventory stops quoting one side ---
-
-def test_max_inventory_stops_quoting_one_side():
-    mm = HLMarketMaker(_make_cfg())
-
-    # Max long inventory: should only quote sells
-    mm._inventory["BTC"] = 50000.0  # at limit
-    sig = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 50000.0)
-    buy_quotes = [q for q in sig.quotes if q.side == "buy"]
-    sell_quotes = [q for q in sig.quotes if q.side == "sell"]
-    assert len(buy_quotes) == 0, "Should not quote buys at max long inventory"
-    assert len(sell_quotes) == 5, "Should still quote sells"
-
-    # Max short inventory: should only quote buys
-    mm._inventory["BTC"] = -50000.0
-    sig = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, -50000.0)
-    buy_quotes = [q for q in sig.quotes if q.side == "buy"]
-    sell_quotes = [q for q in sig.quotes if q.side == "sell"]
-    assert len(buy_quotes) == 5, "Should still quote buys"
-    assert len(sell_quotes) == 0, "Should not quote sells at max short inventory"
-
-
-# --- Test 6: volatility detection widens spread ---
-
-def test_volatility_widens_spread():
-    mm = HLMarketMaker(_make_cfg())
-
-    # First tick establishes baseline mid
-    sig1 = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-    buy1 = [q for q in sig1.quotes if q.side == "buy" and q.tier == 0][0]
-    sell1 = [q for q in sig1.quotes if q.side == "sell" and q.tier == 0][0]
-    spread1 = sell1.price - buy1.price
-
-    # Second tick with >1% move: spread should be wider
-    # Reset the cooldown so we don't get cancelled
-    mm._volatility_pause_until["BTC"] = 0
-    new_price = 60000.0 * 1.015  # 1.5% up
-    sig2 = mm.generate_quotes("BTC", new_price, new_price - 10, new_price + 10, 0.0, 0.0)
-
-    assert sig2.action == "quote_refresh"
-    buy2 = [q for q in sig2.quotes if q.side == "buy" and q.tier == 0][0]
-    sell2 = [q for q in sig2.quotes if q.side == "sell" and q.tier == 0][0]
-    spread2 = sell2.price - buy2.price
-
-    # Spread should be wider (2x) after volatility
-    assert spread2 > spread1 * 1.5, f"Volatile spread {spread2} not wider than normal {spread1}"
-
-
-# --- Test 7: fill tracking updates inventory ---
-
-def test_fill_updates_inventory():
-    mm = HLMarketMaker(_make_cfg())
-
-    assert mm.get_inventory("BTC") == 0.0
-
-    mm.on_fill("BTC", "buy", 0.1, 60000.0)  # bought 0.1 BTC at 60k = 6000 USD
-    assert mm.get_inventory("BTC") == 6000.0
-
-    mm.on_fill("BTC", "sell", 0.05, 60000.0)  # sold 0.05 BTC = 3000 USD
-    assert mm.get_inventory("BTC") == 3000.0
-
-    mm.on_fill("BTC", "sell", 0.1, 60000.0)  # sold 0.1 BTC = -3000 net
-    assert mm.get_inventory("BTC") == -3000.0
-
-
-# --- Test 8: book imbalance widens spread ---
-
-def test_book_imbalance_widens_spread():
-    mm = HLMarketMaker(_make_cfg())
-
-    # Balanced book
-    sig_balanced = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-    buy_b = [q for q in sig_balanced.quotes if q.side == "buy" and q.tier == 0][0]
-    sell_b = [q for q in sig_balanced.quotes if q.side == "sell" and q.tier == 0][0]
-    spread_balanced = sell_b.price - buy_b.price
-
-    # Highly imbalanced book (e.g. 0.8)
-    mm2 = HLMarketMaker(_make_cfg())
-    sig_imbalanced = mm2.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.8, 0.0)
-    buy_i = [q for q in sig_imbalanced.quotes if q.side == "buy" and q.tier == 0][0]
-    sell_i = [q for q in sig_imbalanced.quotes if q.side == "sell" and q.tier == 0][0]
-    spread_imbalanced = sell_i.price - buy_i.price
-
-    assert spread_imbalanced > spread_balanced, "Imbalanced book should widen spread"
-
-
-# --- Test 9: disabled returns no quotes ---
-
-def test_disabled_returns_no_quotes():
-    cfg = _make_cfg({"enabled": False})
-    mm = HLMarketMaker(cfg)
-
-    sig = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-    assert sig.action == "none"
-    assert len(sig.quotes) == 0
-    assert "disabled" in sig.reason.lower()
-
-
-# --- Test 10: multiple coins independent signals ---
-
-def test_multiple_coins_independent():
-    mm = HLMarketMaker(_make_cfg())
-
-    sig_btc = mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-    sig_eth = mm.generate_quotes("ETH", 3000.0, 2999.0, 3001.0, 0.0, 0.0)
-
-    assert sig_btc.coin == "BTC"
-    assert sig_eth.coin == "ETH"
-
-    # BTC quotes should be around 60k, ETH around 3k
-    btc_buy = [q for q in sig_btc.quotes if q.side == "buy" and q.tier == 0][0]
-    eth_buy = [q for q in sig_eth.quotes if q.side == "buy" and q.tier == 0][0]
-
-    assert btc_buy.price > 50000
-    assert eth_buy.price < 5000
-
-    # Inventory on one coin shouldn't affect the other
-    mm.on_fill("BTC", "buy", 0.5, 60000.0)
-    assert mm.get_inventory("BTC") == 30000.0
-    assert mm.get_inventory("ETH") == 0.0
-
-
-# --- Test 11: volatility cooldown cancels quotes ---
-
-def test_volatility_cooldown_cancels():
-    mm = HLMarketMaker(_make_cfg())
-
-    # First tick at base price
-    mm.generate_quotes("BTC", 60000.0, 59990.0, 60010.0, 0.0, 0.0)
-
-    # Big move triggers cooldown
-    mm._volatility_pause_until["BTC"] = 0  # clear so we can trigger
-    mm.generate_quotes("BTC", 61200.0, 61190.0, 61210.0, 0.0, 0.0)  # >1% move
-
-    # Next tick during cooldown should cancel
-    sig = mm.generate_quotes("BTC", 61200.0, 61190.0, 61210.0, 0.0, 0.0)
-    assert sig.action == "cancel"
-    assert len(sig.quotes) == 0
-
-
-# --- Test 12: invalid mid price returns none ---
-
-def test_invalid_mid_price():
-    mm = HLMarketMaker(_make_cfg())
-
-    sig = mm.generate_quotes("BTC", 0.0, 0.0, 0.0, 0.0, 0.0)
-    assert sig.action == "none"
-    assert "Invalid" in sig.reason
-
-    sig2 = mm.generate_quotes("BTC", -100.0, -110.0, -90.0, 0.0, 0.0)
-    assert sig2.action == "none"
-
-
-# --- Test 13: total exposure tracking ---
-
-def test_total_exposure():
-    mm = HLMarketMaker(_make_cfg())
-
-    mm.on_fill("BTC", "buy", 0.5, 60000.0)  # +30000
-    mm.on_fill("ETH", "sell", 5.0, 3000.0)  # -15000
-
-    assert mm.get_total_exposure() == 45000.0  # 30000 + 15000
-
-
-# --- Test 14: skew calculation ---
-
-def test_skew_calculation():
-    mm = HLMarketMaker(_make_cfg())
-
-    # No inventory -> no skew
-    skew = mm._calculate_skew("BTC")
-    assert skew == 0.0
-
-    # Half max long -> positive skew
-    mm._inventory["BTC"] = 25000.0
-    skew = mm._calculate_skew("BTC")
-    assert skew > 0
-
-    # Half max short -> negative skew
-    mm._inventory["BTC"] = -25000.0
-    skew = mm._calculate_skew("BTC")
-    assert skew < 0
-
-    # Skew formula: (inv / max_inv) * (spread_bps / 10000) * 0.5
-    # = (25000 / 50000) * (3 / 10000) * 0.5 = 0.5 * 0.0003 * 0.5 = 0.000075
-    mm._inventory["BTC"] = 25000.0
-    expected = 0.5 * (3 / 10000.0) * 0.5
-    assert abs(mm._calculate_skew("BTC") - expected) < 1e-10
+        base["polymarket"]["hf_market_maker"].update(overrides)
+    return base
+
+
+def _market(
+    cid: str = "cond1",
+    question: str = "Will X happen?",
+    yes_price: float = 0.50,
+    volume_24h: float = 10000,
+    liquidity: float = 50000,
+    active: bool = True,
+) -> Market:
+    return Market(
+        condition_id=cid, question=question, slug="will-x-happen",
+        yes_token_id="tok_yes", no_token_id="tok_no",
+        yes_price=yes_price, no_price=1.0 - yes_price,
+        volume=100000, volume_24h=volume_24h, liquidity=liquidity,
+        active=active,
+    )
+
+
+# ── Market Selection ──
+
+class TestMarketSelection:
+    def test_selects_eligible_markets(self):
+        mm = HighFreqMarketMaker(_cfg())
+        markets = [_market(yes_price=0.50, liquidity=50000, volume_24h=10000)]
+        selected = mm.select_markets(markets)
+        assert len(selected) == 1
+
+    def test_filters_low_liquidity(self):
+        mm = HighFreqMarketMaker(_cfg())
+        markets = [_market(liquidity=1000)]
+        selected = mm.select_markets(markets)
+        assert len(selected) == 0
+
+    def test_filters_low_volume(self):
+        mm = HighFreqMarketMaker(_cfg())
+        markets = [_market(volume_24h=100)]
+        selected = mm.select_markets(markets)
+        assert len(selected) == 0
+
+    def test_filters_extreme_price_low(self):
+        mm = HighFreqMarketMaker(_cfg())
+        markets = [_market(yes_price=0.05)]
+        selected = mm.select_markets(markets)
+        assert len(selected) == 0
+
+    def test_filters_extreme_price_high(self):
+        mm = HighFreqMarketMaker(_cfg())
+        markets = [_market(yes_price=0.95)]
+        selected = mm.select_markets(markets)
+        assert len(selected) == 0
+
+    def test_filters_inactive(self):
+        mm = HighFreqMarketMaker(_cfg())
+        markets = [_market(active=False)]
+        selected = mm.select_markets(markets)
+        assert len(selected) == 0
+
+    def test_limits_max_markets(self):
+        mm = HighFreqMarketMaker(_cfg(max_markets=2))
+        markets = [_market(cid=f"c{i}", volume_24h=10000 + i * 1000) for i in range(5)]
+        selected = mm.select_markets(markets)
+        assert len(selected) == 2
+
+    def test_ranks_by_quality(self):
+        mm = HighFreqMarketMaker(_cfg(max_markets=2))
+        m1 = _market(cid="low", volume_24h=5000, liquidity=20000)
+        m2 = _market(cid="high", volume_24h=50000, liquidity=100000)
+        selected = mm.select_markets([m1, m2])
+        assert selected[0].condition_id == "high"
+
+
+# ── Quote Generation ──
+
+class TestQuoteGeneration:
+    def test_generates_valid_quotes(self):
+        mm = HighFreqMarketMaker(_cfg())
+        m = _market(yes_price=0.50)
+        quote = mm.generate_quotes(m, book_spread=0.06)
+        assert quote is not None
+        assert quote.bid_price < quote.ask_price
+        assert quote.bid_price > 0
+        assert quote.ask_price < 1
+        assert quote.spread > 0
+
+    def test_bid_below_ask(self):
+        mm = HighFreqMarketMaker(_cfg())
+        m = _market(yes_price=0.50)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        assert quote.bid_price < quote.ask_price
+
+    def test_rejects_narrow_spread(self):
+        mm = HighFreqMarketMaker(_cfg())
+        m = _market(yes_price=0.50)
+        quote = mm.generate_quotes(m, book_spread=0.01)
+        assert quote is None
+
+    def test_spread_inside_book(self):
+        mm = HighFreqMarketMaker(_cfg())
+        m = _market(yes_price=0.50)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        assert quote.spread <= 0.10
+
+    def test_quotes_centered_on_mid(self):
+        mm = HighFreqMarketMaker(_cfg())
+        m = _market(yes_price=0.50)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        mid = (quote.bid_price + quote.ask_price) / 2
+        assert abs(mid - 0.50) < 0.02
+
+    def test_skew_with_long_inventory(self):
+        mm = HighFreqMarketMaker(_cfg())
+        m = _market(yes_price=0.50)
+        mm.on_fill("cond1", "Will X?", "tok_yes", "tok_no", "BUY", "tok_yes", 0.50, 50)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        assert quote is not None
+        mid = (quote.bid_price + quote.ask_price) / 2
+        assert mid < 0.50
+
+    def test_no_quote_at_position_limit(self):
+        mm = HighFreqMarketMaker(_cfg(max_position_per_market=10))
+        m = _market(yes_price=0.50)
+        mm.on_fill("cond1", "Will X?", "tok_yes", "tok_no", "BUY", "tok_yes", 0.50, 100)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        assert quote is None
+
+    def test_no_quote_at_total_exposure_limit(self):
+        mm = HighFreqMarketMaker(_cfg(max_total_exposure=5))
+        m = _market(yes_price=0.50)
+        mm.on_fill("cond1", "Will X?", "tok_yes", "tok_no", "BUY", "tok_yes", 0.50, 100)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        assert quote is None
+
+    def test_reduced_size_near_limit(self):
+        mm = HighFreqMarketMaker(_cfg(max_position_per_market=100, flatten_at_pct=0.50))
+        m = _market(yes_price=0.50)
+        mm.on_fill("cond1", "Will X?", "tok_yes", "tok_no", "BUY", "tok_yes", 0.50, 60)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        assert quote is not None
+        normal_quote = HighFreqMarketMaker(_cfg()).generate_quotes(m, book_spread=0.10)
+        # compare USD notional (size * price), not shares — skew shifts price
+        assert quote.bid_size * quote.bid_price < normal_quote.bid_size * normal_quote.bid_price
+
+
+# ── Inventory Tracking ──
+
+class TestInventoryTracking:
+    def test_buy_yes_updates_inventory(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        inv = mm._inventory["c1"]
+        assert inv.yes_shares == 100
+        assert inv.yes_avg_price == 0.50
+
+    def test_buy_no_updates_inventory(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "tn", 0.40, 50)
+        inv = mm._inventory["c1"]
+        assert inv.no_shares == 50
+        assert inv.no_avg_price == 0.40
+
+    def test_avg_price_updates_on_multiple_buys(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.60, 100)
+        inv = mm._inventory["c1"]
+        assert inv.yes_shares == 200
+        assert abs(inv.yes_avg_price - 0.55) < 0.001
+
+    def test_sell_realizes_pnl(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        mm.on_fill("c1", "Q?", "ty", "tn", "SELL", "ty", 0.55, 100)
+        inv = mm._inventory["c1"]
+        assert inv.yes_shares == 0
+        assert inv.realized_pnl > 0
+        assert mm.daily_pnl > 0
+
+    def test_net_exposure(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "tn", 0.40, 80)
+        inv = mm._inventory["c1"]
+        expected = 100 * 0.50 - 80 * 0.40
+        assert abs(inv.net_exposure - expected) < 0.01
+
+    def test_is_flat(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        assert not mm._inventory["c1"].is_flat
+        mm.on_fill("c1", "Q?", "ty", "tn", "SELL", "ty", 0.50, 100)
+        assert mm._inventory["c1"].is_flat
+
+
+# ── Auto-Flatten ──
+
+class TestAutoFlatten:
+    def test_stale_position_detected(self):
+        mm = HighFreqMarketMaker(_cfg(max_inventory_age_seconds=0.01))
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        time.sleep(0.02)
+        stale = mm.get_stale_positions()
+        assert len(stale) == 1
+
+    def test_fresh_position_not_stale(self):
+        mm = HighFreqMarketMaker(_cfg(max_inventory_age_seconds=300))
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        stale = mm.get_stale_positions()
+        assert len(stale) == 0
+
+    def test_flat_position_not_stale(self):
+        mm = HighFreqMarketMaker(_cfg(max_inventory_age_seconds=0.01))
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        mm.on_fill("c1", "Q?", "ty", "tn", "SELL", "ty", 0.50, 100)
+        time.sleep(0.02)
+        stale = mm.get_stale_positions()
+        assert len(stale) == 0
+
+    def test_flatten_yes_position(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        order = mm.flatten_inventory("c1")
+        assert order is not None
+        assert order["side"] == "SELL"
+        assert order["token_id"] == "ty"
+        assert order["size"] == 100
+
+    def test_flatten_no_position(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "tn", 0.40, 50)
+        order = mm.flatten_inventory("c1")
+        assert order is not None
+        assert order["side"] == "SELL"
+        assert order["token_id"] == "tn"
+        assert order["size"] == 50
+
+    def test_flatten_flat_returns_none(self):
+        mm = HighFreqMarketMaker(_cfg())
+        order = mm.flatten_inventory("nonexistent")
+        assert order is None
+
+
+# ── Circuit Breakers ──
+
+class TestCircuitBreakers:
+    def test_paused_after_daily_loss(self):
+        mm = HighFreqMarketMaker(_cfg(max_daily_loss=1.0))
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        mm.on_fill("c1", "Q?", "ty", "tn", "SELL", "ty", 0.48, 100)
+        assert mm.is_paused
+
+    def test_paused_after_consecutive_losses(self):
+        mm = HighFreqMarketMaker(_cfg(max_consecutive_losses=2, pause_after_loss_seconds=0.01))
+        for i in range(3):
+            mm.on_fill(f"c{i}", "Q?", "ty", "tn", "BUY", "ty", 0.50, 10)
+            mm.on_fill(f"c{i}", "Q?", "ty", "tn", "SELL", "ty", 0.49, 10)
+        assert mm._consecutive_losses >= 2
+
+    def test_winning_trade_resets_streak(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 10)
+        mm.on_fill("c1", "Q?", "ty", "tn", "SELL", "ty", 0.49, 10)
+        assert mm._consecutive_losses == 1
+        mm.on_fill("c2", "Q?", "ty", "tn", "BUY", "ty", 0.50, 10)
+        mm.on_fill("c2", "Q?", "ty", "tn", "SELL", "ty", 0.55, 10)
+        assert mm._consecutive_losses == 0
+
+    def test_no_quotes_when_paused(self):
+        mm = HighFreqMarketMaker(_cfg(max_daily_loss=0.01))
+        mm._daily_pnl = -1.0
+        m = _market(yes_price=0.50)
+        quote = mm.generate_quotes(m, book_spread=0.10)
+        assert quote is None
+
+    def test_daily_reset(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm._daily_pnl = -100.0
+        mm._consecutive_losses = 10
+        mm._paused_until = time.monotonic() + 9999
+        mm.reset_daily()
+        assert mm._daily_pnl == 0.0
+        assert mm._consecutive_losses == 0
+        assert not mm.is_paused
+
+
+# ── Status ──
+
+class TestStatus:
+    def test_status_empty(self):
+        mm = HighFreqMarketMaker(_cfg())
+        s = mm.status()
+        assert s["daily_pnl"] == 0
+        assert s["total_trades"] == 0
+        assert s["active_markets"] == 0
+        assert s["win_rate"] == 0
+
+    def test_status_with_trades(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        mm.on_fill("c1", "Q?", "ty", "tn", "SELL", "ty", 0.55, 100)
+        s = mm.status()
+        assert s["total_trades"] == 2
+        assert s["daily_pnl"] > 0
+        assert s["win_rate"] > 0
+
+    def test_total_exposure(self):
+        mm = HighFreqMarketMaker(_cfg())
+        mm.on_fill("c1", "Q?", "ty", "tn", "BUY", "ty", 0.50, 100)
+        assert mm.total_exposure > 0

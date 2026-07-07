@@ -1,4 +1,12 @@
-"""Polymarket 24/7 automated trading bot."""
+"""Polymarket 24/7 high-frequency market-making bot.
+
+Philosophy: 赚 spread，不赌方向，快进快出，低回撤，稳。
+- Quote both sides in high-liquidity markets
+- Earn bid-ask spread on round trips
+- Auto-flatten stale inventory (never hold directional risk)
+- Multiple layers of circuit breakers
+- Paper mode by default — proves profitability before going live
+"""
 
 from __future__ import annotations
 
@@ -9,263 +17,304 @@ from typing import Optional
 
 from src.logger import get_logger
 from src.polymarket.client import PolymarketClient
+from src.polymarket.market_maker import HighFreqMarketMaker, QuotePair
 from src.polymarket.paper import PaperExecutor
-from src.polymarket.risk import PolymarketRiskManager
-from src.polymarket.scanner import MarketScanner
-from src.polymarket.strategy import EdgeStrategy, MarketMakerStrategy, MeanReversionStrategy, PMStrategy
-from src.polymarket.types import BotState, Opportunity, Outcome, Side
+from src.polymarket.types import BotState, Market, Outcome, Side
 
 log = get_logger(__name__)
 
 
 class PolymarketBot:
-    """Main bot loop — scans markets, evaluates opportunities, executes trades 24/7."""
+    """High-frequency market-making bot for Polymarket.
+
+    Cycle: scan markets → generate quotes → place orders → monitor fills → manage inventory.
+    Runs every few seconds for high-frequency operation.
+    """
 
     def __init__(self, cfg: dict) -> None:
         self._cfg = cfg
         pm_cfg = cfg.get("polymarket", {})
 
         self._paper_mode = pm_cfg.get("paper_mode", True)
-        self._cycle_interval = pm_cfg.get("cycle_interval_seconds", 60)
-        self._scan_interval = pm_cfg.get("scan_interval_seconds", 300)
-        self._max_trades_per_cycle = pm_cfg.get("max_trades_per_cycle", 3)
+        self._cycle_interval = pm_cfg.get("cycle_interval_seconds", 5)
+        self._scan_interval = pm_cfg.get("scan_interval_seconds", 60)
+        self._report_interval = pm_cfg.get("report_interval_seconds", 300)
 
         # components
         self._client = PolymarketClient(cfg)
-        self._scanner = MarketScanner(self._client, cfg)
-        self._risk = PolymarketRiskManager(cfg)
+        self._maker = HighFreqMarketMaker(cfg)
         self._paper = PaperExecutor(cfg) if self._paper_mode else None
-
-        # strategies
-        self._strategies: list[PMStrategy] = self._init_strategies(cfg)
 
         # state
         self._state = BotState()
-        self._last_scan_time = 0.0
-        self._cached_opportunities: list[Opportunity] = []
+        self._last_scan_ts = 0.0
+        self._last_report_ts = 0.0
+        self._active_markets: list[Market] = []
+        self._active_quotes: dict[str, QuotePair] = {}  # condition_id -> quote
+        self._start_time = 0.0
+
+        # daily reset tracking
+        self._last_reset_day = ""
 
         log.info(
-            f"PolymarketBot initialized: "
-            f"paper={self._paper_mode}, "
-            f"strategies={[s.name() for s in self._strategies]}, "
-            f"cycle={self._cycle_interval}s, scan={self._scan_interval}s"
+            f"PolymarketBot initialized: mode={'PAPER' if self._paper_mode else 'LIVE'}, "
+            f"cycle={self._cycle_interval}s, quote_size=${self._maker.config.quote_size_usd}"
         )
 
-    def _init_strategies(self, cfg: dict) -> list[PMStrategy]:
-        pm_cfg = cfg.get("polymarket", {})
-        strategy_names = pm_cfg.get("strategies", ["mean_reversion"])
-        strats: list[PMStrategy] = []
-
-        for name in strategy_names:
-            if name == "edge":
-                strats.append(EdgeStrategy(cfg))
-            elif name == "mean_reversion":
-                strats.append(MeanReversionStrategy(cfg))
-            elif name == "market_maker":
-                strats.append(MarketMakerStrategy(cfg))
-            else:
-                log.warning(f"Unknown strategy: {name}")
-
-        if not strats:
-            strats.append(MeanReversionStrategy(cfg))
-
-        return strats
-
     def run(self) -> None:
-        """Main loop — runs until halted or interrupted."""
+        """Main 24/7 loop."""
+        self._start_time = time.monotonic()
+
         log.info("=" * 60)
-        log.info("Polymarket Bot starting")
+        log.info("Polymarket Market Maker Starting")
         log.info(f"Mode: {'PAPER' if self._paper_mode else 'LIVE'}")
+        log.info(f"Strategy: high-freq spread capture, no directional bets")
+        log.info(f"Max exposure: ${self._maker.config.max_total_exposure}")
+        log.info(f"Max loss/day: ${self._maker.config.max_daily_loss}")
+        log.info(f"Quote size: ${self._maker.config.quote_size_usd}/side")
+        log.info(f"Inventory timeout: {self._maker.config.max_inventory_age_seconds}s")
         log.info("=" * 60)
 
-        if not self._paper_mode:
-            balance = self._client.get_balance()
-            log.info(f"Live balance: ${balance:.2f}")
-        else:
+        if self._paper_mode and self._paper:
             log.info(f"Paper balance: ${self._paper.get_balance():.2f}")
+
+        # start heartbeat for live mode
+        if not self._paper_mode:
+            self._client.start_heartbeat()
 
         try:
             while not self._state.halted:
-                self._run_cycle()
+                self._cycle()
                 time.sleep(self._cycle_interval)
         except KeyboardInterrupt:
-            log.info("Bot stopped by user (Ctrl+C)")
+            log.info("Stopped by user (Ctrl+C)")
         except Exception:
             log.exception("Bot crashed")
             raise
         finally:
             self._shutdown()
 
-    def _run_cycle(self) -> None:
-        """One bot cycle: scan → evaluate → trade → monitor."""
+    def _cycle(self) -> None:
+        """One bot cycle: scan → quote → flatten stale → report."""
         self._state.cycle_count += 1
         now = time.monotonic()
 
-        # scan for opportunities periodically
-        if now - self._last_scan_time >= self._scan_interval or not self._cached_opportunities:
-            try:
-                self._scan()
-                self._last_scan_time = now
-            except Exception as e:
-                log.error(f"Scan failed: {e}")
-                self._state.errors_today += 1
-                return
+        # midnight UTC reset
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if today != self._last_reset_day:
+            self._maker.reset_daily()
+            self._state.trades_today = 0
+            self._state.errors_today = 0
+            self._last_reset_day = today
+            log.info(f"Daily reset: {today}")
 
-        # check circuit breakers
-        current_pnl = self._get_pnl()
-        cb = self._risk.check_circuit_breakers(self._state, current_pnl)
-        if not cb.passed:
-            log.warning(f"Circuit breaker triggered: {cb.reason}")
+        # check if paused (consecutive losses cooldown or daily loss limit)
+        if self._maker.is_paused:
+            if self._state.cycle_count % 60 == 0:
+                log.info(f"PAUSED — daily PnL: ${self._maker.daily_pnl:+.2f}")
             return
 
-        # evaluate and trade
-        trades_this_cycle = 0
-        for opp in self._cached_opportunities[:]:
-            if trades_this_cycle >= self._max_trades_per_cycle:
-                break
+        # periodic market scan
+        if now - self._last_scan_ts >= self._scan_interval:
+            self._scan_markets()
+            self._last_scan_ts = now
 
-            balance = self._get_balance()
-            exposure = self._get_total_exposure()
+        # generate and place quotes for each active market
+        for market in self._active_markets:
+            try:
+                self._quote_market(market)
+            except Exception as e:
+                log.error(f"Quote failed for {market.question[:40]}: {e}")
+                self._state.errors_today += 1
 
-            rc = self._risk.check_opportunity(opp, self._state, exposure, balance)
-            if not rc.passed:
-                continue
+        # auto-flatten stale inventory
+        self._flatten_stale()
 
-            size_usd = self._risk.size_position(opp, balance, exposure)
-            if size_usd <= 0:
-                continue
+        # periodic status report
+        if now - self._last_report_ts >= self._report_interval:
+            self._report()
+            self._last_report_ts = now
 
-            # convert USDC to shares: shares = usd / price
-            price = opp.market_prob
-            if price <= 0 or price >= 1:
-                continue
-            shares = size_usd / price
-
-            success = self._execute_trade(opp, price, shares)
-            if success:
-                trades_this_cycle += 1
-                self._state.trades_today += 1
-                self._cached_opportunities.remove(opp)
-
-        # periodic status log
-        if self._state.cycle_count % 10 == 0:
-            self._log_status()
-
-    def _scan(self) -> None:
-        """Scan markets and merge opportunities from all strategies."""
-        markets = self._client.get_markets(
-            active=True,
-            limit=200,
-            min_volume=self._cfg.get("polymarket", {}).get("scanner", {}).get("min_volume", 10000),
-            min_liquidity=self._cfg.get("polymarket", {}).get("scanner", {}).get("min_liquidity", 5000),
-        )
-
-        all_opps: list[Opportunity] = []
-        for strat in self._strategies:
-            opps = strat.evaluate(markets)
-            log.info(f"Strategy '{strat.name()}' found {len(opps)} opportunities")
-            all_opps.extend(opps)
-
-        # deduplicate by market+outcome, keep highest EV
-        seen: dict[str, Opportunity] = {}
-        for opp in all_opps:
-            key = f"{opp.market.condition_id}:{opp.outcome.value}"
-            if key not in seen or opp.ev > seen[key].ev:
-                seen[key] = opp
-
-        self._cached_opportunities = sorted(seen.values(), key=lambda x: x.ev, reverse=True)
-        self._state.last_scan_ts = datetime.now(timezone.utc).isoformat()
-        log.info(f"Scan complete: {len(self._cached_opportunities)} unique opportunities")
-
-    def _execute_trade(self, opp: Opportunity, price: float, shares: float) -> bool:
-        """Execute a trade via paper or live executor."""
-        token_id = (
-            opp.market.yes_token_id if opp.outcome == Outcome.YES else opp.market.no_token_id
-        )
-
-        q = opp.market.question[:60]
-        log.info(
-            f"TRADE: {opp.side.value} {shares:.2f} shares of {opp.outcome.value} "
-            f"@{price:.4f} | {q} | edge={opp.edge:.1%} EV={opp.ev:+.4f}"
-        )
-
-        if self._paper_mode and self._paper:
-            result = self._paper.place_order(
-                token_id=token_id,
-                side=opp.side,
-                price=price,
-                size=shares,
-                market=opp.market,
+    def _scan_markets(self) -> None:
+        """Fetch and filter markets for market making."""
+        try:
+            all_markets = self._client.get_markets(
+                active=True,
+                limit=200,
+                min_liquidity=self._maker.config.min_market_liquidity,
             )
-        else:
-            result = self._client.place_order(
-                token_id=token_id,
-                side=opp.side,
-                price=price,
-                size=shares,
+            self._active_markets = self._maker.select_markets(all_markets)
+            log.info(
+                f"Scan: {len(all_markets)} total → {len(self._active_markets)} eligible markets"
             )
-
-        if result.success:
-            log.info(f"Trade executed: {result.order_id} filled={result.filled_size}")
-            return True
-        else:
-            log.error(f"Trade failed: {result.error}")
+            for m in self._active_markets:
+                log.info(f"  {m.question[:50]} | mid={m.yes_price:.2f} | liq=${m.liquidity:,.0f}")
+        except Exception as e:
+            log.error(f"Market scan failed: {e}")
             self._state.errors_today += 1
-            return False
 
-    def _get_balance(self) -> float:
-        if self._paper_mode and self._paper:
-            return self._paper.get_balance()
-        return self._client.get_balance()
+    def _quote_market(self, market: Market) -> None:
+        """Generate and place quotes for one market."""
+        cid = market.condition_id
 
-    def _get_total_exposure(self) -> float:
-        if self._paper_mode and self._paper:
-            return sum(
-                p.size * p.avg_price
-                for p in self._paper.account.positions.values()
-            )
-        return 0.0  # TODO: compute from live positions
+        # get current book spread
+        try:
+            book = self._client.get_orderbook(market.yes_token_id, market)
+            book_spread = book.spread
+        except Exception:
+            book_spread = 0.10  # fallback wide spread
 
-    def _get_pnl(self) -> float:
-        if self._paper_mode and self._paper:
-            return self._paper.account.total_pnl
-        return 0.0  # TODO: compute from live
+        # generate quotes
+        quote = self._maker.generate_quotes(market, book_spread)
+        if not quote:
+            return
 
-    def _log_status(self) -> None:
-        bal = self._get_balance()
-        pnl = self._get_pnl()
-        n_pos = len(self._paper.account.positions) if self._paper_mode and self._paper else 0
-        mode = "PAPER" if self._paper_mode else "LIVE"
-        log.info(
-            f"[{mode}] cycle={self._state.cycle_count} "
-            f"bal=${bal:.2f} pnl=${pnl:+.2f} "
-            f"positions={n_pos} trades_today={self._state.trades_today} "
-            f"pending_opps={len(self._cached_opportunities)} "
-            f"errors={self._state.errors_today}"
+        prev_quote = self._active_quotes.get(cid)
+
+        # skip if quotes haven't changed significantly (avoid unnecessary order churn)
+        if prev_quote and abs(quote.bid_price - prev_quote.bid_price) < 0.005 and abs(quote.ask_price - prev_quote.ask_price) < 0.005:
+            return
+
+        # cancel previous quotes for this market
+        # (in paper mode we just place new ones)
+
+        # place bid (buy YES)
+        bid_result = self._place(
+            token_id=quote.yes_token_id,
+            side=Side.BUY,
+            price=quote.bid_price,
+            size=quote.bid_size,
+            market=market,
         )
+        if bid_result and bid_result.filled_size > 0:
+            self._maker.on_fill(
+                cid, market.question, market.yes_token_id, market.no_token_id,
+                "BUY", market.yes_token_id, quote.bid_price, bid_result.filled_size,
+            )
+            self._state.trades_today += 1
+
+        # place ask (buy NO = effectively selling YES)
+        no_price = 1.0 - quote.ask_price
+        if no_price > 0.01:
+            ask_size_no = quote.ask_size  # shares of NO
+            ask_result = self._place(
+                token_id=quote.no_token_id,
+                side=Side.BUY,
+                price=no_price,
+                size=ask_size_no,
+                market=market,
+            )
+            if ask_result and ask_result.filled_size > 0:
+                self._maker.on_fill(
+                    cid, market.question, market.yes_token_id, market.no_token_id,
+                    "BUY", market.no_token_id, no_price, ask_result.filled_size,
+                )
+                self._state.trades_today += 1
+
+        self._active_quotes[cid] = quote
+
+    def _flatten_stale(self) -> None:
+        """Auto-flatten positions that have been held too long."""
+        stale = self._maker.get_stale_positions()
+        for inv in stale:
+            order = self._maker.flatten_inventory(inv.condition_id)
+            if not order:
+                continue
+            log.warning(f"FLATTEN: {order['reason']}")
+            side = Side.SELL if order["side"] == "SELL" else Side.BUY
+
+            # for paper mode, sell at a slight discount (simulating market impact)
+            # in live mode, use market order (FOK)
+            if self._paper_mode and self._paper:
+                # estimate current price
+                market = None
+                for m in self._active_markets:
+                    if m.condition_id == inv.condition_id:
+                        market = m
+                        break
+                sell_price = market.yes_price * 0.99 if market else 0.50
+                result = self._paper.place_order(
+                    token_id=order["token_id"],
+                    side=side,
+                    price=sell_price,
+                    size=order["size"],
+                    market=market,
+                )
+                if result.success and result.filled_size > 0:
+                    self._maker.on_fill(
+                        inv.condition_id, inv.question,
+                        inv.yes_token_id, inv.no_token_id,
+                        "SELL", order["token_id"], sell_price, result.filled_size,
+                    )
+            else:
+                result = self._client.place_market_order(
+                    token_id=order["token_id"],
+                    side=side,
+                    amount=order["size"],
+                )
+                if result.success:
+                    self._maker.on_fill(
+                        inv.condition_id, inv.question,
+                        inv.yes_token_id, inv.no_token_id,
+                        "SELL", order["token_id"], 0, result.filled_size,
+                    )
+
+    def _place(self, token_id: str, side: Side, price: float, size: float,
+               market: Optional[Market] = None):
+        """Place an order through paper or live executor."""
+        if self._paper_mode and self._paper:
+            return self._paper.place_order(token_id, side, price, size, market)
+        else:
+            return self._client.place_order(token_id, side, price, size)
+
+    def _report(self) -> None:
+        """Log a status report."""
+        status = self._maker.status()
+        uptime = time.monotonic() - self._start_time
+        hours = uptime / 3600
+
+        bal = self._paper.get_balance() if self._paper_mode and self._paper else 0
+        equity = self._paper.get_equity() if self._paper_mode and self._paper else 0
+
+        log.info("─" * 50)
+        log.info(f"STATUS REPORT (uptime {hours:.1f}h)")
+        log.info(f"  Mode:       {'PAPER' if self._paper_mode else 'LIVE'}")
+        log.info(f"  Balance:    ${bal:.2f}")
+        log.info(f"  Equity:     ${equity:.2f}")
+        log.info(f"  Daily PnL:  ${status['daily_pnl']:+.4f}")
+        log.info(f"  Exposure:   ${status['total_exposure']:.2f}")
+        log.info(f"  Markets:    {status['active_markets']}")
+        log.info(f"  Trades:     {status['total_trades']} (win rate: {status['win_rate']:.0%})")
+        log.info(f"  Cycles:     {self._state.cycle_count}")
+        log.info(f"  Errors:     {self._state.errors_today}")
+
+        for pos in status.get("positions", []):
+            log.info(
+                f"    {pos['market']}: YES={pos['yes']:.1f} NO={pos['no']:.1f} "
+                f"exp=${pos['exposure']:+.2f} pnl=${pos['pnl']:+.4f} age={pos['age_s']:.0f}s"
+            )
+        log.info("─" * 50)
 
     def _shutdown(self) -> None:
-        """Clean shutdown: cancel orders, log final state."""
-        log.info("Bot shutting down...")
+        """Clean shutdown."""
+        log.info("Shutting down...")
+        if not self._paper_mode:
+            self._client.stop_heartbeat()
+            self._client.cancel_all()
+
+        self._report()
         if self._paper_mode and self._paper:
             log.info(self._paper.summary())
-        else:
-            cancelled = self._client.cancel_all()
-            log.info(f"Cancelled {cancelled} open orders")
-        log.info(f"Final state: cycles={self._state.cycle_count}, trades={self._state.trades_today}")
 
     def status(self) -> dict:
-        """Return current bot status as a dict."""
+        """Return current bot status."""
+        maker_status = self._maker.status()
         return {
             "mode": "paper" if self._paper_mode else "live",
-            "balance": self._get_balance(),
-            "pnl": self._get_pnl(),
-            "positions": len(self._paper.account.positions) if self._paper_mode and self._paper else 0,
-            "trades_today": self._state.trades_today,
+            "uptime_hours": round((time.monotonic() - self._start_time) / 3600, 2) if self._start_time else 0,
             "cycle_count": self._state.cycle_count,
-            "pending_opportunities": len(self._cached_opportunities),
+            "trades_today": self._state.trades_today,
             "errors_today": self._state.errors_today,
             "halted": self._state.halted,
-            "halt_reason": self._state.halt_reason,
-            "strategies": [s.name() for s in self._strategies],
+            **maker_status,
         }

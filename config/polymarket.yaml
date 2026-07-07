@@ -47,6 +47,40 @@ polymarket:
     price_band_low: 0.25
     price_band_high: 0.75
 
+  # HFT Market Maker (bot.py / market_maker.py)
+  hf_market_maker:
+    # spread & pricing
+    min_half_spread: 0.02       # 2 cents minimum half-spread
+    max_half_spread: 0.05       # widen up to 5 cents under stress
+    skew_factor: 0.01           # price shift per $10 inventory imbalance
+
+    # sizing
+    quote_size_usd: 20.0        # $20 per side per quote
+    max_position_per_market: 100.0  # $100 max per market
+    max_total_exposure: 300.0   # $300 total across all markets
+
+    # market selection
+    min_market_liquidity: 20000   # $20K liquidity minimum
+    min_market_volume_24h: 5000   # $5K 24h volume minimum
+    min_book_spread: 0.03         # only trade if book spread > 3 cents
+    price_band_low: 0.15          # don't trade below 15c
+    price_band_high: 0.85         # don't trade above 85c
+    max_markets: 5                # max simultaneous markets
+
+    # inventory management
+    max_inventory_age_seconds: 300  # auto-flatten after 5 minutes
+    flatten_at_pct: 0.80            # flatten when inventory hits 80% of max
+
+    # risk
+    max_daily_loss: 50.0            # stop trading if down $50
+    max_consecutive_losses: 5       # pause after 5 consecutive losing trades
+    pause_after_loss_seconds: 120   # 2 min cooldown after consecutive losses
+
+  # Cycle timing (HFT mode)
+  cycle_interval_seconds: 5        # 5-second cycles for high-frequency
+  scan_interval_seconds: 60        # rescan markets every minute
+  report_interval_seconds: 300     # status report every 5 minutes
+
   # Risk management
   risk:
     max_position_usd: 500       # max per single position
