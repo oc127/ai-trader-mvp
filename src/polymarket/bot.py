@@ -15,6 +15,8 @@ import traceback
 from datetime import datetime, timezone
 from typing import Optional
 
+from src.monitor.alerts import AlertManager
+
 from src.logger import get_logger
 from src.polymarket.client import PolymarketClient
 from src.polymarket.market_maker import HighFreqMarketMaker, QuotePair
@@ -56,6 +58,17 @@ class PolymarketBot:
         # daily reset tracking
         self._last_reset_day = ""
 
+        # telegram alerts
+        self._alerts = AlertManager(cfg)
+        self._alert_rate_limits: dict[str, float] = {
+            "trade": 30.0,
+            "flatten": 0.0,
+            "circuit_breaker": 0.0,
+            "report": 0.0,
+            "error": 60.0,
+        }
+        self._last_alert_ts: dict[str, float] = {}
+
         log.info(
             f"PolymarketBot initialized: mode={'PAPER' if self._paper_mode else 'LIVE'}, "
             f"cycle={self._cycle_interval}s, quote_size=${self._maker.config.quote_size_usd}"
@@ -77,6 +90,15 @@ class PolymarketBot:
 
         if self._paper_mode and self._paper:
             log.info(f"Paper balance: ${self._paper.get_balance():.2f}")
+
+        mode = "PAPER" if self._paper_mode else "LIVE"
+        self._alert(
+            f"Polymarket Bot Started [{mode}]\n"
+            f"Quote: ${self._maker.config.quote_size_usd}/side\n"
+            f"Max exposure: ${self._maker.config.max_total_exposure}\n"
+            f"Max loss/day: ${self._maker.config.max_daily_loss}",
+            alert_type="report",
+        )
 
         # start heartbeat for live mode
         if not self._paper_mode:
@@ -102,16 +124,28 @@ class PolymarketBot:
         # midnight UTC reset
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != self._last_reset_day:
+            prev_pnl = self._maker.daily_pnl
+            prev_trades = self._state.trades_today
             self._maker.reset_daily()
             self._state.trades_today = 0
             self._state.errors_today = 0
             self._last_reset_day = today
             log.info(f"Daily reset: {today}")
+            self._alert(
+                f"Daily Reset: {today}\n"
+                f"Yesterday PnL: ${prev_pnl:+.4f} | Trades: {prev_trades}",
+                alert_type="report",
+            )
 
         # check if paused (consecutive losses cooldown or daily loss limit)
         if self._maker.is_paused:
             if self._state.cycle_count % 60 == 0:
                 log.info(f"PAUSED — daily PnL: ${self._maker.daily_pnl:+.2f}")
+            self._alert(
+                f"CIRCUIT BREAKER: Bot paused\nDaily PnL: ${self._maker.daily_pnl:+.2f}",
+                alert_type="circuit_breaker",
+                level="warning",
+            )
             return
 
         # periodic market scan
@@ -126,6 +160,12 @@ class PolymarketBot:
             except Exception as e:
                 log.error(f"Quote failed for {market.question[:40]}: {e}")
                 self._state.errors_today += 1
+                if self._state.errors_today > 5:
+                    self._alert(
+                        f"Error count high: {self._state.errors_today} today\n{e}",
+                        alert_type="error",
+                        level="error",
+                    )
 
         # auto-flatten stale inventory
         self._flatten_stale()
@@ -192,6 +232,10 @@ class PolymarketBot:
                 "BUY", market.yes_token_id, quote.bid_price, bid_result.filled_size,
             )
             self._state.trades_today += 1
+            self._alert(
+                f"BID FILL: {market.question[:40]}\n"
+                f"Price: {quote.bid_price:.3f} | Size: {bid_result.filled_size:.1f}",
+            )
 
         # place ask (buy NO = effectively selling YES)
         no_price = 1.0 - quote.ask_price
@@ -210,6 +254,10 @@ class PolymarketBot:
                     "BUY", market.no_token_id, no_price, ask_result.filled_size,
                 )
                 self._state.trades_today += 1
+                self._alert(
+                    f"ASK FILL: {market.question[:40]}\n"
+                    f"Price: {no_price:.3f} | Size: {ask_result.filled_size:.1f}",
+                )
 
         self._active_quotes[cid] = quote
 
@@ -221,6 +269,11 @@ class PolymarketBot:
             if not order:
                 continue
             log.warning(f"FLATTEN: {order['reason']}")
+            self._alert(
+                f"FLATTEN: {order['reason']}\nSize: {order['size']:.1f}",
+                alert_type="flatten",
+                level="warning",
+            )
             side = Side.SELL if order["side"] == "SELL" else Side.BUY
 
             # for paper mode, sell at a slight discount (simulating market impact)
@@ -295,6 +348,24 @@ class PolymarketBot:
             )
         log.info("─" * 50)
 
+        self._alert(
+            f"Status ({hours:.1f}h)\n"
+            f"PnL: ${status['daily_pnl']:+.4f} | Trades: {status['total_trades']} "
+            f"({status['win_rate']:.0%})\n"
+            f"Exposure: ${status['total_exposure']:.2f} | Errors: {self._state.errors_today}",
+            alert_type="report",
+        )
+
+    def _alert(self, msg: str, alert_type: str = "trade", level: str = "info") -> None:
+        """Send a Telegram alert with rate limiting per alert type."""
+        now = time.monotonic()
+        limit = self._alert_rate_limits.get(alert_type, 30.0)
+        last = self._last_alert_ts.get(alert_type, 0.0)
+        if limit > 0 and (now - last) < limit:
+            return
+        self._last_alert_ts[alert_type] = now
+        self._alerts.send(msg, level=level)
+
     def _shutdown(self) -> None:
         """Clean shutdown."""
         log.info("Shutting down...")
@@ -305,6 +376,14 @@ class PolymarketBot:
         self._report()
         if self._paper_mode and self._paper:
             log.info(self._paper.summary())
+
+        uptime = (time.monotonic() - self._start_time) / 3600 if self._start_time else 0
+        self._alert(
+            f"Bot Shutdown\n"
+            f"Uptime: {uptime:.1f}h | Trades: {self._state.trades_today} | "
+            f"PnL: ${self._maker.daily_pnl:+.4f}",
+            alert_type="report",
+        )
 
     def status(self) -> dict:
         """Return current bot status."""
