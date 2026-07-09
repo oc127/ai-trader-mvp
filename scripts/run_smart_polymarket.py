@@ -1,12 +1,14 @@
-"""Run the Smart Polymarket bot (mean reversion + edge detection).
+"""Run the Unified Polymarket bot (maker + edge, two legs walking).
 
 Usage:
-  python scripts/run_smart_polymarket.py                    # paper mode (default)
+  python scripts/run_smart_polymarket.py                    # paper mode, maker + edge (default)
   python scripts/run_smart_polymarket.py --live              # live mode (requires API keys)
   python scripts/run_smart_polymarket.py --scan              # scan only, no trading
   python scripts/run_smart_polymarket.py --backtest          # run market maker backtest
   python scripts/run_smart_polymarket.py --status            # check connection
   python scripts/run_smart_polymarket.py --ai                # enable AI edge analysis
+  python scripts/run_smart_polymarket.py --edge-only         # disable maker, edge strategies only
+  python scripts/run_smart_polymarket.py --maker-only        # disable edge, maker only
   python scripts/run_smart_polymarket.py --config config/polymarket_live.yaml
 """
 
@@ -14,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-import threading
 from pathlib import Path
 
 # ensure src is importable
@@ -32,38 +33,34 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def cmd_run(cfg: dict, *, enable_ai: bool = False) -> None:
+def cmd_run(cfg: dict, *, enable_ai: bool = False, maker_only: bool = False, edge_only: bool = False) -> None:
     setup_logging(cfg)
 
-    from src.polymarket.smart_bot import SmartPolymarketBot
+    from src.polymarket.unified_bot import UnifiedPolymarketBot
 
-    ai_thread: threading.Thread | None = None
+    # layer toggles
+    if maker_only:
+        cfg.setdefault("polymarket", {})["maker_enabled"] = True
+        cfg.setdefault("polymarket", {})["edge_enabled"] = False
+    elif edge_only:
+        cfg.setdefault("polymarket", {})["maker_enabled"] = False
+        cfg.setdefault("polymarket", {})["edge_enabled"] = True
 
+    analyzer = None
     if enable_ai:
-        ai_cfg = cfg.get("ai_edge", {})
-        if not ai_cfg.get("enabled", False):
-            # --ai flag overrides config
-            cfg.setdefault("ai_edge", {})["enabled"] = True
+        cfg.setdefault("ai_edge", {})["enabled"] = True
 
         from src.polymarket.ai_edge import AIEdgeAnalyzer
 
         analyzer = AIEdgeAnalyzer(cfg)
-        ai_thread = threading.Thread(
-            target=analyzer.run,
-            name="ai-edge-analyzer",
-            daemon=True,
-        )
-        ai_thread.start()
-        print("AI edge analyzer started on background thread")
+        print("AI edge analyzer enabled")
 
-        bot = SmartPolymarketBot(cfg, ai_analyzer=analyzer)
-    else:
-        bot = SmartPolymarketBot(cfg)
+    bot = UnifiedPolymarketBot(cfg, ai_analyzer=analyzer)
 
     try:
         bot.run()
     except KeyboardInterrupt:
-        print("\nShutting down smart bot...")
+        print("\nShutting down...")
         bot.stop()
 
 
@@ -116,13 +113,15 @@ def cmd_status(cfg: dict) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Smart Polymarket Bot (mean reversion + edge)")
+    p = argparse.ArgumentParser(description="Unified Polymarket Bot (maker + edge)")
     p.add_argument("--config", default="config/polymarket.yaml", help="Config file path")
     p.add_argument("--live", action="store_true", help="Enable live trading (default: paper)")
     p.add_argument("--scan", action="store_true", help="Scan markets only, no trading")
     p.add_argument("--backtest", action="store_true", help="Run market maker backtest")
     p.add_argument("--status", action="store_true", help="Check connection and show top markets")
-    p.add_argument("--ai", action="store_true", help="Enable AI edge analysis (background thread)")
+    p.add_argument("--ai", action="store_true", help="Enable AI edge analysis")
+    p.add_argument("--maker-only", action="store_true", help="Maker layer only (no edge)")
+    p.add_argument("--edge-only", action="store_true", help="Edge layer only (no maker)")
     args = p.parse_args()
 
     cfg_path = Path(args.config)
@@ -143,7 +142,7 @@ def main() -> None:
     elif args.backtest:
         cmd_backtest(cfg)
     else:
-        cmd_run(cfg, enable_ai=args.ai)
+        cmd_run(cfg, enable_ai=args.ai, maker_only=args.maker_only, edge_only=args.edge_only)
 
 
 if __name__ == "__main__":
