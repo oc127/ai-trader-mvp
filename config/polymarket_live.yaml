@@ -1,0 +1,100 @@
+# Polymarket LIVE Trading Configuration
+# REAL MONEY — conservative settings, prioritize capital preservation
+
+polymarket:
+  paper_mode: false
+
+  # Chain
+  chain_id: 137  # Polygon mainnet
+  signature_type: 2  # GNOSIS_SAFE for proxy wallets (Polymarket default)
+
+  # Rate limiting
+  rate_limit_delay: 0.25  # slightly more conservative than paper
+
+  # ── HFT Market Maker (Layer 1) ──
+  hf_market_maker:
+    # Spread — wider in live to protect against adverse selection
+    min_half_spread: 0.025      # 2.5 cents minimum (wider than paper)
+    max_half_spread: 0.06       # widen up to 6 cents under stress
+
+    # Inventory skew
+    skew_factor: 0.015          # stronger skew to reduce directional risk
+
+    # Sizing — START SMALL, scale up after profitable days
+    quote_size_usd: 10.0        # $10 per side (half of paper)
+    max_position_per_market: 50.0   # $50 max per market
+    max_total_exposure: 150.0       # $150 total across all markets
+
+    # Market selection — stricter filters
+    min_market_liquidity: 30000     # $30K liquidity minimum
+    min_market_volume_24h: 10000    # $10K 24h volume minimum
+    min_book_spread: 0.04           # only trade if book spread > 4 cents
+    price_band_low: 0.20            # avoid extremes
+    price_band_high: 0.80
+    max_markets: 3                  # fewer markets = better focus
+
+    # Inventory management — aggressive flatten
+    max_inventory_age_seconds: 180  # flatten after 3 minutes (not 5)
+    flatten_at_pct: 0.70            # flatten at 70% of max (not 80%)
+
+    # Risk — tight stops
+    max_daily_loss: 25.0            # stop at $25 loss (half of paper)
+    max_consecutive_losses: 3       # pause after 3 consecutive losses
+    pause_after_loss_seconds: 300   # 5 min cooldown (longer than paper)
+
+  # ── Cycle timing ──
+  cycle_interval_seconds: 5        # 5-second fast cycles
+  scan_interval_seconds: 120       # rescan markets every 2 minutes
+  report_interval_seconds: 300     # status report every 5 minutes
+
+  # ── Layer toggles ──
+  maker_enabled: true
+  edge_enabled: true
+
+  # ── Scanner (for edge detection) ──
+  scanner:
+    min_edge: 0.07              # 7% minimum edge (stricter)
+    min_volume: 20000
+    min_liquidity: 10000
+    max_price: 0.85
+    min_price: 0.15
+    market_limit: 100
+
+  # ── Strategy (edge layer) ──
+  strategy:
+    min_edge: 0.07
+    reversion_size: 0.06        # smaller mean reversion adjustment
+    vol_liq_threshold: 2.0
+
+  # ── Risk management ──
+  risk:
+    max_position_usd: 200
+    max_total_exposure_usd: 500
+    max_single_market_pct: 0.15   # 15% max in one market
+    max_daily_trades: 30
+    max_daily_loss_usd: 100
+    min_kelly: 0.02
+    max_kelly: 0.05               # very conservative Kelly cap
+    min_edge: 0.07
+    min_confidence: "medium"
+    max_errors_before_halt: 5     # halt faster on errors
+
+# Smart bot settings (edge layer)
+smart_bot:
+  cycle_interval_seconds: 30
+  scan_interval_seconds: 300
+  max_trades_per_cycle: 1         # 1 trade per cycle in live
+  position_timeout_seconds: 1800  # 30 min timeout (shorter)
+  stop_loss_multiplier: 1.5       # tighter stop loss
+
+# AI edge (optional, requires LLM API key)
+ai_edge:
+  enabled: false
+  min_edge: 0.07
+  min_confidence: "high"          # require high confidence in live
+  max_markets_per_cycle: 5
+  analysis_cache_seconds: 900     # cache longer to save API costs
+
+logging:
+  level: INFO
+  format: text
