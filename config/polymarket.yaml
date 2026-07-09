@@ -94,6 +94,22 @@ polymarket:
     min_confidence: "low"
     max_errors_before_halt: 10
 
+# Smart bot settings (green/yellow-light strategies)
+smart_bot:
+  cycle_interval_seconds: 30        # seconds between trade cycles
+  scan_interval_seconds: 300        # seconds between full market scans
+  max_trades_per_cycle: 2
+  position_timeout_seconds: 3600    # 1 hour — auto-close stale positions
+  stop_loss_multiplier: 2.0         # stop loss at 2x expected edge
+
+# AI edge analysis (requires --ai flag or enabled: true)
+ai_edge:
+  enabled: false                    # disabled by default; --ai flag overrides
+  min_edge: 0.05                    # 5% minimum AI-detected edge
+  min_confidence: "medium"          # minimum confidence level (low/medium/high)
+  max_markets_per_cycle: 10         # cap AI analysis per cycle
+  analysis_cache_seconds: 600       # cache AI results for 10 minutes
+
 logging:
   level: INFO
   format: text
