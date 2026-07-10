@@ -17,7 +17,9 @@ from typing import Optional
 
 from src.logger import get_logger
 from src.monitor.alerts import AlertManager
+from src.polymarket.arbitrage import ArbitrageEngine
 from src.polymarket.client import PolymarketClient
+from src.polymarket.copy_trader import CopyTrader
 from src.polymarket.market_maker import HighFreqMarketMaker, QuotePair
 from src.polymarket.paper import PaperExecutor
 from src.polymarket.risk import PolymarketRiskManager
@@ -28,10 +30,11 @@ log = get_logger(__name__)
 
 
 class UnifiedPolymarketBot:
-    """Two-layer bot: market making for steady spread income + directional edge trades.
-
-    Fast cycle (5s): scan → quote markets → flatten stale inventory
-    Slow cycle (30s): evaluate edge strategies → execute directional trades → monitor exits
+    """Four-layer bot:
+    Layer 1 (maker, 5s): Quote both sides, earn spread, auto-flatten stale inventory
+    Layer 2 (edge, 30s): AI + mean reversion find mispriced markets, directional bets
+    Layer 3 (arb, 30s): Complete-set arbitrage + resolution sniping
+    Layer 4 (copy, 120s): Smart money copy trading — mirror top performers
     """
 
     def __init__(self, cfg: dict, ai_analyzer=None) -> None:
@@ -55,6 +58,8 @@ class UnifiedPolymarketBot:
         # enable/disable layers
         self._maker_enabled = pm_cfg.get("maker_enabled", True)
         self._edge_enabled = pm_cfg.get("edge_enabled", True)
+        self._arb_enabled = pm_cfg.get("arb_enabled", True)
+        self._copy_enabled = pm_cfg.get("copy_enabled", False)
 
         # shared components
         self._client = PolymarketClient(cfg)
@@ -72,6 +77,14 @@ class UnifiedPolymarketBot:
         self._ai_analyzer = ai_analyzer
         self._edge_positions: dict[str, _EdgePosition] = {}
 
+        # layer 3: arbitrage
+        self._arb_engine = ArbitrageEngine(cfg)
+        self._last_arb_ts = 0.0
+
+        # layer 4: copy trading
+        self._copy_trader = CopyTrader(cfg)
+        self._last_copy_scan_ts = 0.0
+
         # shared state
         self._state = BotState()
         self._active_markets: list[Market] = []
@@ -84,19 +97,30 @@ class UnifiedPolymarketBot:
         # PnL tracking
         self._maker_pnl = 0.0
         self._edge_pnl = 0.0
+        self._arb_pnl = 0.0
+        self._copy_pnl = 0.0
 
         # alert rate limiting
         self._alert_limits = {
             "trade": 30.0, "flatten": 0.0, "circuit_breaker": 0.0,
             "report": 0.0, "error": 60.0, "edge": 0.0,
+            "arb": 0.0, "copy": 0.0,
         }
         self._last_alert_ts: dict[str, float] = {}
+
+        # initialize risk manager with capital
+        if self._paper_mode and self._paper:
+            self._risk.set_initial_capital(self._paper.get_balance())
 
         layers = []
         if self._maker_enabled:
             layers.append("maker")
         if self._edge_enabled:
             layers.append("edge")
+        if self._arb_enabled:
+            layers.append("arb")
+        if self._copy_enabled:
+            layers.append("copy")
         log.info(
             f"UnifiedBot initialized: mode={'PAPER' if self._paper_mode else 'LIVE'}, "
             f"layers=[{', '.join(layers)}], fast={self._fast_interval}s, slow={self._slow_interval}s"
@@ -110,6 +134,9 @@ class UnifiedPolymarketBot:
         log.info(f"Mode: {'PAPER' if self._paper_mode else 'LIVE'}")
         log.info(f"Layer 1 (Maker):  {'ON' if self._maker_enabled else 'OFF'} — {self._fast_interval}s cycle")
         log.info(f"Layer 2 (Edge):   {'ON' if self._edge_enabled else 'OFF'} — {self._slow_interval}s cycle")
+        log.info(f"Layer 3 (Arb):    {'ON' if self._arb_enabled else 'OFF'} — {self._slow_interval}s cycle")
+        copy_int = self._copy_trader.config.scan_interval
+        log.info(f"Layer 4 (Copy):   {'ON' if self._copy_enabled else 'OFF'} — {copy_int}s cycle")
         log.info(f"Max exposure: ${self._maker.config.max_total_exposure}")
         log.info(f"Max loss/day: ${self._maker.config.max_daily_loss}")
         log.info("=" * 60)
@@ -120,7 +147,8 @@ class UnifiedPolymarketBot:
         mode = "PAPER" if self._paper_mode else "LIVE"
         self._alert(
             f"Unified Bot Started [{mode}]\n"
-            f"Maker: {'ON' if self._maker_enabled else 'OFF'} | Edge: {'ON' if self._edge_enabled else 'OFF'}\n"
+            f"Maker: {'ON' if self._maker_enabled else 'OFF'} | Edge: {'ON' if self._edge_enabled else 'OFF'} "
+            f"| Arb: {'ON' if self._arb_enabled else 'OFF'} | Copy: {'ON' if self._copy_enabled else 'OFF'}\n"
             f"Max exposure: ${self._maker.config.max_total_exposure}",
             alert_type="report",
         )
@@ -155,17 +183,25 @@ class UnifiedPolymarketBot:
         if today != self._last_reset_day:
             prev_maker = self._maker_pnl
             prev_edge = self._edge_pnl
+            prev_arb = self._arb_pnl
+            prev_copy = self._copy_pnl
             prev_trades = self._state.trades_today
             self._maker.reset_daily()
+            self._arb_engine.reset_daily()
+            self._copy_trader.reset_daily()
+            self._risk.reset_daily()
             self._maker_pnl = 0.0
             self._edge_pnl = 0.0
+            self._arb_pnl = 0.0
+            self._copy_pnl = 0.0
             self._state.trades_today = 0
             self._state.errors_today = 0
             self._last_reset_day = today
             log.info(f"Daily reset: {today}")
             self._alert(
                 f"Daily Reset: {today}\n"
-                f"Yesterday — Maker PnL: ${prev_maker:+.4f} | Edge PnL: ${prev_edge:+.4f} | Trades: {prev_trades}",
+                f"Yesterday — Maker: ${prev_maker:+.4f} | Edge: ${prev_edge:+.4f} "
+                f"| Arb: ${prev_arb:+.4f} | Copy: ${prev_copy:+.4f} | Trades: {prev_trades}",
                 alert_type="report",
             )
 
@@ -204,6 +240,29 @@ class UnifiedPolymarketBot:
                 log.debug(traceback.format_exc())
                 self._state.errors_today += 1
             self._last_slow_ts = now
+
+        # Layer 3: arbitrage scanning (runs on slow_interval)
+        if self._arb_enabled and now - self._last_arb_ts >= self._slow_interval:
+            try:
+                self._arb_cycle()
+            except Exception as e:
+                log.error(f"Arb cycle error: {e}")
+                self._state.errors_today += 1
+            self._last_arb_ts = now
+
+        # Layer 4: copy trading (runs on its own interval)
+        copy_interval = self._copy_trader.config.scan_interval
+        if self._copy_enabled and now - self._last_copy_scan_ts >= copy_interval:
+            try:
+                self._copy_cycle()
+            except Exception as e:
+                log.error(f"Copy cycle error: {e}")
+                self._state.errors_today += 1
+            self._last_copy_scan_ts = now
+
+        # update equity for risk tracking
+        if self._paper_mode and self._paper:
+            self._risk.update_equity(self._paper.get_equity())
 
         # error alert
         if self._state.errors_today > 5:
@@ -358,6 +417,108 @@ class UnifiedPolymarketBot:
                     alert_type="edge",
                 )
 
+    # ── Arbitrage (Layer 3) ──
+
+    def _arb_cycle(self) -> None:
+        if not self._active_markets:
+            return
+
+        opps = self._arb_engine.scan_all(self._active_markets)
+        if not opps:
+            return
+
+        for opp in opps[:3]:
+            if opp.arb_type == "complete_set":
+                size = min(opp.net_profit * 100, self._arb_engine.config.max_arb_size_usd)
+                if size < 2.0:
+                    continue
+                log.info(
+                    f"ARB: {opp.market.question[:40]} | cost={opp.total_cost:.3f} "
+                    f"net=${opp.net_profit:.4f} roi={opp.roi_pct:.2f}%"
+                )
+                buy_yes = self._place(
+                    opp.market.yes_token_id, Side.BUY, opp.yes_cost, size / 2, opp.market,
+                )
+                buy_no = self._place(
+                    opp.market.no_token_id, Side.BUY, opp.no_cost, size / 2, opp.market,
+                )
+                if buy_yes and buy_yes.success and buy_no and buy_no.success:
+                    filled = min(buy_yes.filled_size, buy_no.filled_size)
+                    self._arb_engine.record_fill(opp, filled, opp.total_cost)
+                    pnl = opp.net_profit * filled
+                    self._arb_pnl += pnl
+                    self._risk.record_trade_result(pnl)
+                    self._state.trades_today += 2
+                    self._alert(
+                        f"ARB FILL: {opp.market.question[:40]}\n"
+                        f"ROI: {opp.roi_pct:.2f}% | Net: ${pnl:+.4f}",
+                        alert_type="arb",
+                    )
+            elif opp.arb_type == "resolution_snipe":
+                size = min(20.0, self._arb_engine.config.max_arb_size_usd)
+                token_id = (
+                    opp.market.yes_token_id if opp.snipe_side == "YES"
+                    else opp.market.no_token_id
+                )
+                price = opp.yes_cost if opp.snipe_side == "YES" else opp.no_cost
+                log.info(
+                    f"SNIPE: {opp.snipe_side} {opp.market.question[:40]} "
+                    f"@ {price:.3f} net=${opp.net_profit:.4f}"
+                )
+                result = self._place(token_id, Side.BUY, price, size, opp.market)
+                if result and result.success and result.filled_size > 0:
+                    self._arb_engine.record_fill(opp, result.filled_size, price)
+                    pnl = opp.net_profit * result.filled_size
+                    self._arb_pnl += pnl
+                    self._risk.record_trade_result(pnl)
+                    self._state.trades_today += 1
+                    self._alert(
+                        f"SNIPE FILL: {opp.snipe_side} {opp.market.question[:40]}\n"
+                        f"@ {price:.3f} | Net: ${pnl:+.4f}",
+                        alert_type="arb",
+                    )
+
+    # ── Copy Trading (Layer 4) ──
+
+    def _copy_cycle(self) -> None:
+        traders = self._copy_trader.fetch_leaderboard()
+        if not traders:
+            return
+
+        qualified = self._copy_trader.filter_traders(traders)
+        self._copy_trader.update_followed(qualified)
+
+        for t in qualified:
+            if not self._copy_trader.should_copy(t.address):
+                continue
+
+            trades = self._copy_trader.fetch_trader_trades(t.address)
+            new_trades = self._copy_trader.detect_new_trades(t.address, trades)
+
+            for trade in new_trades[:2]:
+                copy_size = self._copy_trader.calculate_copy_size(
+                    float(trade.get("size", 0) or 0)
+                )
+                if copy_size < self._copy_trader.config.min_copy_size_usd:
+                    continue
+
+                token_id = trade.get("asset_id", trade.get("tokenId", ""))
+                raw_side = trade.get("side", "BUY").upper()
+                side = Side.BUY if raw_side == "BUY" else Side.SELL
+                price = float(trade.get("price", 0.50) or 0.50)
+
+                time.sleep(self._copy_trader.config.trade_delay)
+
+                result = self._place(token_id, side, price, copy_size)
+                if result and result.success and result.filled_size > 0:
+                    self._copy_trader.record_copy(t.address)
+                    self._state.trades_today += 1
+                    self._alert(
+                        f"COPY: {t.username or t.address[:8]} {raw_side}\n"
+                        f"Size: ${copy_size:.2f} @ {price:.3f}",
+                        alert_type="copy",
+                    )
+
     # ── Market Making (Layer 1) ──
 
     def _scan_markets(self) -> None:
@@ -476,10 +637,13 @@ class UnifiedPolymarketBot:
 
     def _report(self) -> None:
         maker_status = self._maker.status()
+        arb_status = self._arb_engine.status()
+        copy_status = self._copy_trader.status()
+        risk_status = self._risk.status()
         uptime = (time.monotonic() - self._start_time) / 3600
         bal = self._paper.get_balance() if self._paper_mode and self._paper else 0
         equity = self._paper.get_equity() if self._paper_mode and self._paper else 0
-        total_pnl = self._maker_pnl + self._edge_pnl
+        total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
 
         log.info("─" * 55)
         log.info(f"STATUS REPORT (uptime {uptime:.1f}h)")
@@ -489,18 +653,26 @@ class UnifiedPolymarketBot:
         log.info(f"  Total PnL:   ${total_pnl:+.4f}")
         log.info(f"    Maker PnL: ${self._maker_pnl:+.4f}")
         log.info(f"    Edge PnL:  ${self._edge_pnl:+.4f}")
+        arb_c, snipe_c = arb_status['arb_count'], arb_status['snipe_count']
+        log.info(f"    Arb PnL:   ${self._arb_pnl:+.4f} ({arb_c} arbs, {snipe_c} snipes)")
+        log.info(f"    Copy PnL:  ${self._copy_pnl:+.4f} ({copy_status['copy_count']} copies)")
         mk_trades = maker_status['total_trades']
         mk_wr = maker_status['win_rate']
         log.info(f"  Maker:       {maker_status['active_markets']} mkts, {mk_trades} trades ({mk_wr:.0%})")
         log.info(f"  Edge:        {len(self._edge_positions)} open positions")
+        dd = risk_status['drawdown_pct']
+        sm = risk_status['size_multiplier']
+        log.info(f"  Risk:        DD={dd:.1f}% | size_mult={sm:.2f}")
         log.info(f"  Cycles:      {self._state.cycle_count}")
         log.info(f"  Errors:      {self._state.errors_today}")
         log.info("─" * 55)
 
         self._alert(
             f"Status ({uptime:.1f}h)\n"
-            f"Total PnL: ${total_pnl:+.4f} (maker=${self._maker_pnl:+.4f} edge=${self._edge_pnl:+.4f})\n"
-            f"Maker: {maker_status['total_trades']} trades | Edge: {len(self._edge_positions)} pos",
+            f"Total PnL: ${total_pnl:+.4f} (maker=${self._maker_pnl:+.4f} edge=${self._edge_pnl:+.4f} "
+            f"arb=${self._arb_pnl:+.4f} copy=${self._copy_pnl:+.4f})\n"
+            f"Maker: {mk_trades} trades | Edge: {len(self._edge_positions)} pos | "
+            f"Arb: {arb_status['arb_count']}+{arb_status['snipe_count']} | Copy: {copy_status['copy_count']}",
             alert_type="report",
         )
 
@@ -512,16 +684,18 @@ class UnifiedPolymarketBot:
         self._report()
         if self._paper_mode and self._paper:
             log.info(self._paper.summary())
-        total_pnl = self._maker_pnl + self._edge_pnl
+        total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
         uptime = (time.monotonic() - self._start_time) / 3600 if self._start_time else 0
         self._alert(
             f"Bot Shutdown\nUptime: {uptime:.1f}h | PnL: ${total_pnl:+.4f} "
-            f"(maker=${self._maker_pnl:+.4f} edge=${self._edge_pnl:+.4f})",
+            f"(maker=${self._maker_pnl:+.4f} edge=${self._edge_pnl:+.4f} "
+            f"arb=${self._arb_pnl:+.4f} copy=${self._copy_pnl:+.4f})",
             alert_type="report",
         )
 
     def status(self) -> dict:
         maker_status = self._maker.status()
+        total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
         return {
             "mode": "paper" if self._paper_mode else "live",
             "uptime_hours": round((time.monotonic() - self._start_time) / 3600, 2) if self._start_time else 0,
@@ -531,9 +705,14 @@ class UnifiedPolymarketBot:
             "halted": self._state.halted,
             "maker_pnl": round(self._maker_pnl, 4),
             "edge_pnl": round(self._edge_pnl, 4),
-            "total_pnl": round(self._maker_pnl + self._edge_pnl, 4),
+            "arb_pnl": round(self._arb_pnl, 4),
+            "copy_pnl": round(self._copy_pnl, 4),
+            "total_pnl": round(total_pnl, 4),
             "edge_positions": len(self._edge_positions),
+            "risk": self._risk.status(),
             **maker_status,
+            **self._arb_engine.status(),
+            **self._copy_trader.status(),
         }
 
 

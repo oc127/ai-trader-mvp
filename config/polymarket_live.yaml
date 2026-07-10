@@ -66,7 +66,7 @@ polymarket:
     reversion_size: 0.06        # smaller mean reversion adjustment
     vol_liq_threshold: 2.0
 
-  # ── Risk management ──
+  # ── Risk management (4-layer circuit breakers + dynamic sizing) ──
   risk:
     max_position_usd: 200
     max_total_exposure_usd: 500
@@ -78,6 +78,38 @@ polymarket:
     min_edge: 0.07
     min_confidence: "medium"
     max_errors_before_halt: 5     # halt faster on errors
+    # multi-layer circuit breakers (conservative for live)
+    max_monthly_loss_usd: 300     # L2: $300 monthly cap
+    max_drawdown_pct: 0.15        # L3: 15% max drawdown
+    max_total_loss_pct: 0.30      # L4: 30% lifetime halt
+    # dynamic sizing
+    loss_shrink_pct: 0.25         # shrink faster in live
+    win_grow_pct: 0.05            # grow slower in live
+    max_streak_adjustment: 0.40   # more aggressive floor
+
+  # ── Arbitrage (conservative for live) ──
+  arbitrage:
+    min_net_profit: 0.01          # $0.01 minimum (higher than paper)
+    min_roi_pct: 0.5              # 0.5% minimum ROI
+    max_arb_size_usd: 30.0        # smaller max per trade
+    min_liquidity: 10000          # higher liquidity requirement
+    min_volume: 5000
+    snipe_min_price: 0.96         # stricter snipe threshold
+    snipe_max_price: 0.995
+
+  # ── Copy Trading (conservative for live) ──
+  copy_trading:
+    min_pnl: 1000.0               # higher PnL requirement
+    min_win_rate: 0.65            # stricter win rate
+    min_profit_factor: 2.0        # higher profit factor
+    min_trades: 50                # more history required
+    max_traders_to_follow: 5      # fewer traders
+    copy_size_pct: 0.05           # 5% of their size (half of paper)
+    max_copy_size_usd: 15.0       # smaller max
+    min_copy_size_usd: 2.0
+    scan_interval: 180.0          # check every 3 min
+    trade_delay: 10.0             # longer delay
+    cooldown_per_trader: 600.0    # 10 min cooldown
 
 # Smart bot settings (edge layer)
 smart_bot:

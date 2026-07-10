@@ -81,7 +81,7 @@ polymarket:
   scan_interval_seconds: 60        # rescan markets every minute
   report_interval_seconds: 300     # status report every 5 minutes
 
-  # Risk management
+  # Risk management (4-layer circuit breakers + dynamic sizing)
   risk:
     max_position_usd: 500       # max per single position
     max_total_exposure_usd: 2000  # total exposure cap
@@ -93,6 +93,40 @@ polymarket:
     min_edge: 0.05
     min_confidence: "low"
     max_errors_before_halt: 10
+    # multi-layer circuit breakers
+    max_monthly_loss_usd: 1500   # L2: monthly loss cap
+    max_drawdown_pct: 0.25       # L3: 25% max drawdown from equity peak
+    max_total_loss_pct: 0.40     # L4: 40% lifetime loss halt
+    # dynamic sizing (streak-based)
+    loss_shrink_pct: 0.20        # shrink size 20% per consecutive loss
+    win_grow_pct: 0.10           # grow size 10% per consecutive win
+    max_streak_adjustment: 0.50  # floor: size can shrink to 50% of base
+
+  # Complete-set arbitrage + resolution sniping
+  arbitrage:
+    min_net_profit: 0.005        # $0.005 minimum net profit per arb
+    min_roi_pct: 0.3             # 0.3% minimum ROI
+    max_arb_size_usd: 50.0       # max per arb trade
+    min_liquidity: 5000
+    min_volume: 1000
+    snipe_min_price: 0.95        # minimum price to snipe (near-certain)
+    snipe_max_price: 0.995       # don't buy at $1.00
+    scan_limit: 200
+
+  # Smart Money copy trading
+  copy_trading:
+    min_pnl: 500.0
+    min_win_rate: 0.60
+    min_profit_factor: 1.5
+    min_trades: 20
+    min_consistency: 0.70
+    max_traders_to_follow: 10
+    copy_size_pct: 0.10          # copy 10% of their size
+    max_copy_size_usd: 25.0
+    min_copy_size_usd: 2.0
+    scan_interval: 120.0         # check leaderboard every 2 min
+    trade_delay: 5.0             # wait 5s before copying
+    cooldown_per_trader: 300.0   # 5 min cooldown per trader
 
 # Smart bot settings (green/yellow-light strategies)
 smart_bot:
