@@ -7,6 +7,10 @@ polymarket:
   # Known account balance (fallback when API can't query proxy wallet balance)
   initial_balance: 59.0
 
+  # Proxy wallet address (the actual trading address on Polymarket)
+  # Set this OR POLYMARKET_FUNDER_ADDRESS in .env
+  # funder_address: "0xcFe7eAc0096C89FF85F8Cd05D27257957f8007fA"
+
   # Chain
   chain_id: 137  # Polygon mainnet
   signature_type: 2  # GNOSIS_SAFE for proxy wallets (Polymarket default)
