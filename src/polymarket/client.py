@@ -76,16 +76,20 @@ class PolymarketClient:
                 })
             else:
                 creds = self._clob_client.create_or_derive_api_key()
-                if hasattr(creds, "api_key"):
-                    self._clob_client.set_api_creds({
-                        "apiKey": creds.api_key,
-                        "secret": creds.api_secret,
-                        "passphrase": creds.api_passphrase,
-                    })
-                    log.info(f"Derived API creds: key={creds.api_key[:8]}...")
+                if isinstance(creds, dict):
+                    api_key = creds.get("apiKey", creds.get("api_key", ""))
+                    api_secret = creds.get("secret", creds.get("api_secret", ""))
+                    api_pass = creds.get("passphrase", creds.get("api_passphrase", ""))
                 else:
-                    key = creds.get("apiKey", "") if isinstance(creds, dict) else str(creds)
-                    log.info(f"Derived API creds: {key[:8]}...")
+                    api_key = getattr(creds, "api_key", getattr(creds, "apiKey", ""))
+                    api_secret = getattr(creds, "api_secret", getattr(creds, "secret", ""))
+                    api_pass = getattr(creds, "api_passphrase", getattr(creds, "passphrase", ""))
+                self._clob_client.set_api_creds({
+                    "apiKey": api_key,
+                    "secret": api_secret,
+                    "passphrase": api_pass,
+                })
+                log.info(f"Derived API creds: key={api_key[:8]}...")
 
             log.info("CLOB V2 client initialized")
             return self._clob_client
@@ -343,12 +347,36 @@ class PolymarketClient:
             return []
 
     def get_balance(self) -> float:
-        """Get pUSD balance (Polymarket's USDC wrapper on Polygon)."""
+        """Get USDC balance on Polymarket."""
         client = self._init_clob()
         self._throttle()
         try:
             bal = client.get_balance_allowance()
-            return float(bal.get("balance", 0)) if isinstance(bal, dict) else 0.0
+            if isinstance(bal, dict):
+                raw = bal.get("balance", 0)
+            elif hasattr(bal, "balance"):
+                raw = bal.balance
+            else:
+                raw = bal
+            amount = float(raw) if raw else 0.0
+            # balance is in wei (6 decimals for USDC) if very large
+            if amount > 1_000_000:
+                amount = amount / 1e6
+            return amount
         except Exception:
-            log.exception("Failed to get balance")
-            return 0.0
+            log.debug("get_balance_allowance failed, trying fallback")
+        # fallback: try collateral balance
+        try:
+            import requests
+            self._throttle()
+            resp = requests.get(
+                f"{CLOB_API}/balance",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=10,
+            )
+            if resp.ok:
+                data = resp.json()
+                return float(data.get("balance", 0))
+        except Exception:
+            pass
+        return 0.0
