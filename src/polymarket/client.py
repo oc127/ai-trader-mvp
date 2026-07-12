@@ -357,7 +357,10 @@ class PolymarketClient:
         client = self._init_clob()
         self._throttle()
         try:
-            bal = client.get_balance_allowance()
+            from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
+
+            params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            bal = client.get_balance_allowance(params)
             log.debug(f"get_balance_allowance returned: {type(bal).__name__} = {bal}")
             if isinstance(bal, dict):
                 raw = bal.get("balance", bal.get("available", 0))
