@@ -353,28 +353,148 @@ class PolymarketClient:
             return []
 
     def get_balance(self) -> float:
-        """Get USDC balance on Polymarket."""
-        client = self._init_clob()
-        self._throttle()
+        """Get USDC balance on Polymarket (multi-method with fallback)."""
+        # Method 1: SDK get_balance_allowance
+        amount = self._balance_via_sdk()
+        if amount > 0:
+            return amount
+
+        # Method 2: Direct on-chain USDC query on Polygon
+        amount = self._balance_via_polygon_rpc()
+        if amount > 0:
+            return amount
+
+        log.warning("All balance methods returned 0")
+        return 0.0
+
+    def _balance_via_sdk(self) -> float:
+        """Try getting balance through the SDK."""
         try:
+            client = self._init_clob()
+            self._throttle()
             from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
 
+            # First update/refresh the balance state
+            try:
+                params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+                client.update_balance_allowance(params)
+            except Exception:
+                pass
+
+            self._throttle()
             params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
             bal = client.get_balance_allowance(params)
-            log.info(f"balance-allowance raw response: {bal}")
-            if isinstance(bal, dict):
-                raw = bal.get("allowance", bal.get("balance", bal.get("available", 0)))
-            elif hasattr(bal, "allowance"):
-                raw = bal.allowance
-            elif hasattr(bal, "balance"):
-                raw = bal.balance
-            else:
-                raw = bal
-            amount = float(raw) if raw else 0.0
-            # balance is in wei (6 decimals for USDC) if very large
-            if amount > 1_000_000:
-                amount = amount / 1e6
-            return amount
+            log.info(f"balance-allowance raw: {bal}")
+
+            raw = self._extract_balance_value(bal)
+            amount = self._normalize_usdc(raw)
+            if amount > 0:
+                return amount
+
+            # Try without params as fallback
+            self._throttle()
+            bal2 = client.get_balance_allowance()
+            if bal2 != bal:
+                log.info(f"balance-allowance (no params) raw: {bal2}")
+                raw2 = self._extract_balance_value(bal2)
+                return self._normalize_usdc(raw2)
         except Exception as e:
-            log.info(f"get_balance_allowance failed: {e}")
+            log.debug(f"SDK balance failed: {e}")
         return 0.0
+
+    def _balance_via_polygon_rpc(self) -> float:
+        """Query USDC balance directly from Polygon via public RPC."""
+        wallet = self._funder
+        if not wallet:
+            try:
+                from eth_account import Account
+                wallet = Account.from_key(self._private_key).address
+            except Exception:
+                return 0.0
+
+        # USDC on Polygon (both bridged and native)
+        usdc_contracts = [
+            "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",  # USDC.e (bridged, 6 dec)
+            "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",  # native USDC (6 dec)
+        ]
+        rpcs = [
+            "https://polygon-rpc.com",
+            "https://rpc.ankr.com/polygon",
+        ]
+
+        total = 0.0
+        for contract in usdc_contracts:
+            bal = self._erc20_balance_of(wallet, contract, rpcs)
+            if bal > 0:
+                total += bal
+
+        if total > 0:
+            log.info(f"Polygon RPC balance: ${total:.2f} (wallet={wallet[:10]}...)")
+        return total
+
+    @staticmethod
+    def _erc20_balance_of(wallet: str, contract: str, rpcs: list[str]) -> float:
+        """Call balanceOf(address) on an ERC-20 contract via JSON-RPC."""
+        import requests
+
+        # balanceOf(address) selector = 0x70a08231, padded address
+        addr_padded = wallet.lower().replace("0x", "").zfill(64)
+        data = f"0x70a08231000000000000000000000000{addr_padded}"
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_call",
+            "params": [{"to": contract, "data": data}, "latest"],
+        }
+
+        for rpc in rpcs:
+            try:
+                resp = requests.post(rpc, json=payload, timeout=10)
+                result = resp.json().get("result", "0x0")
+                wei = int(result, 16)
+                return wei / 1e6  # USDC has 6 decimals
+            except Exception:
+                continue
+        return 0.0
+
+    @staticmethod
+    def _extract_balance_value(bal) -> float:
+        """Extract numeric value from various response formats."""
+        if bal is None:
+            return 0.0
+        if isinstance(bal, (int, float)):
+            return float(bal)
+        if isinstance(bal, str):
+            try:
+                return float(bal)
+            except ValueError:
+                return 0.0
+        if isinstance(bal, dict):
+            # Try all known field names
+            for key in ("allowance", "balance", "available", "amount", "value"):
+                if key in bal:
+                    try:
+                        return float(bal[key])
+                    except (ValueError, TypeError):
+                        continue
+            # If single-key dict, use whatever value is there
+            if len(bal) == 1:
+                try:
+                    return float(next(iter(bal.values())))
+                except (ValueError, TypeError):
+                    pass
+        if hasattr(bal, "allowance"):
+            return float(bal.allowance or 0)
+        if hasattr(bal, "balance"):
+            return float(bal.balance or 0)
+        return 0.0
+
+    @staticmethod
+    def _normalize_usdc(raw: float) -> float:
+        """Convert raw value to USDC (handles wei format)."""
+        if raw <= 0:
+            return 0.0
+        # If > 1M, it's in wei (6 decimals)
+        if raw > 1_000_000:
+            return raw / 1e6
+        return raw
