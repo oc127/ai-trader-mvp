@@ -49,6 +49,16 @@ class PolymarketClient:
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._heartbeat_running = False
 
+    @staticmethod
+    def _make_api_creds(api_key: str, api_secret: str, api_passphrase: str):
+        """Build an ApiCreds object the SDK expects (not a plain dict)."""
+        try:
+            from py_clob_client_v2.clob_types import ApiCreds
+            return ApiCreds(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase)
+        except (ImportError, TypeError):
+            from types import SimpleNamespace
+            return SimpleNamespace(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase)
+
     def _init_clob(self) -> Any:
         """Lazy-init the official CLOB V2 client."""
         if self._clob_client is not None:
@@ -69,11 +79,9 @@ class PolymarketClient:
             self._clob_client = ClobClient(**kwargs)
 
             if self._api_key and self._api_secret and self._api_passphrase:
-                self._clob_client.set_api_creds({
-                    "apiKey": self._api_key,
-                    "secret": self._api_secret,
-                    "passphrase": self._api_passphrase,
-                })
+                self._clob_client.set_api_creds(
+                    self._make_api_creds(self._api_key, self._api_secret, self._api_passphrase)
+                )
             else:
                 creds = self._clob_client.create_or_derive_api_key()
                 if isinstance(creds, dict):
@@ -84,11 +92,9 @@ class PolymarketClient:
                     api_key = getattr(creds, "api_key", getattr(creds, "apiKey", ""))
                     api_secret = getattr(creds, "api_secret", getattr(creds, "secret", ""))
                     api_pass = getattr(creds, "api_passphrase", getattr(creds, "passphrase", ""))
-                self._clob_client.set_api_creds({
-                    "apiKey": api_key,
-                    "secret": api_secret,
-                    "passphrase": api_pass,
-                })
+                self._clob_client.set_api_creds(
+                    self._make_api_creds(api_key, api_secret, api_pass)
+                )
                 log.info(f"Derived API creds: key={api_key[:8]}...")
 
             log.info("CLOB V2 client initialized")
