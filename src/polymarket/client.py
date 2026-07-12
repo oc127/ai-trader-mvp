@@ -361,9 +361,11 @@ class PolymarketClient:
 
             params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
             bal = client.get_balance_allowance(params)
-            log.debug(f"get_balance_allowance returned: {type(bal).__name__} = {bal}")
+            log.info(f"balance-allowance raw response: {bal}")
             if isinstance(bal, dict):
-                raw = bal.get("balance", bal.get("available", 0))
+                raw = bal.get("allowance", bal.get("balance", bal.get("available", 0)))
+            elif hasattr(bal, "allowance"):
+                raw = bal.allowance
             elif hasattr(bal, "balance"):
                 raw = bal.balance
             else:
@@ -374,5 +376,5 @@ class PolymarketClient:
                 amount = amount / 1e6
             return amount
         except Exception as e:
-            log.debug(f"get_balance_allowance failed: {e}")
+            log.info(f"get_balance_allowance failed: {e}")
         return 0.0
