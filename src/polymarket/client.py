@@ -144,7 +144,14 @@ class PolymarketClient:
         markets: list[Market] = []
 
         for m in resp.json():
-            tokens = m.get("clobTokenIds") or m.get("tokens", [])
+            tokens_raw = m.get("clobTokenIds") or m.get("tokens", [])
+            if isinstance(tokens_raw, str):
+                import json as _json2
+                try:
+                    tokens_raw = _json2.loads(tokens_raw)
+                except (ValueError, TypeError):
+                    continue
+            tokens = tokens_raw
             if not tokens or len(tokens) < 2:
                 continue
 
