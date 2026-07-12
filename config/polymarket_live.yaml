@@ -13,7 +13,7 @@ polymarket:
 
   # Chain
   chain_id: 137  # Polygon mainnet
-  signature_type: 2  # GNOSIS_SAFE for proxy wallets (Polymarket default)
+  signature_type: 1  # POLY_PROXY for Polymarket embedded wallets
 
   # Rate limiting
   rate_limit_delay: 0.25  # slightly more conservative than paper
