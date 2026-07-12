@@ -57,6 +57,7 @@ polymarket:
   # ── Layer toggles ──
   maker_enabled: true
   edge_enabled: true
+  copy_enabled: true
 
   # ── Scanner (for edge detection) ──
   scanner:

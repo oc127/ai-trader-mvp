@@ -245,6 +245,53 @@ class PolymarketClient:
         data = resp.json()
         return float(data.get("minimum_tick_size", 0.01))
 
+    # ── LP Rewards ──
+
+    def get_reward_markets(self) -> dict[str, float]:
+        """Get current reward config: map of token_id → max_spread (incentive band).
+
+        Orders placed within the max_spread band around mid earn LP rewards.
+        Returns {token_id: max_spread_pct} for all reward-eligible markets.
+        """
+        client = self._init_clob()
+        self._throttle()
+        try:
+            from py_clob_client_v2.clob_types import RequestArgs
+            from py_clob_client_v2.headers import create_level_2_headers
+
+            import requests as _req
+            resp = _req.get(f"{CLOB_API}/rewards/markets/current", timeout=15)
+            if resp.status_code != 200:
+                return {}
+            data = resp.json()
+            result = {}
+            items = data if isinstance(data, list) else data.get("data", [])
+            for item in items:
+                tokens = item.get("tokens", [])
+                for tok in tokens:
+                    tid = tok.get("token_id", "")
+                    max_spread = float(tok.get("max_spread", 0) or 0)
+                    if tid and max_spread > 0:
+                        result[tid] = max_spread
+            if result:
+                log.info(f"LP rewards: {len(result)} reward-eligible tokens")
+            return result
+        except Exception as e:
+            log.debug(f"Reward markets fetch failed: {e}")
+            return {}
+
+    def check_orders_scoring(self, order_ids: list[str]) -> dict[str, bool]:
+        """Check if specific orders are currently scoring LP rewards."""
+        client = self._init_clob()
+        self._throttle()
+        try:
+            result = client.are_orders_scoring(order_ids)
+            if isinstance(result, dict):
+                return {k: bool(v) for k, v in result.items()}
+            return {}
+        except Exception:
+            return {}
+
     # ── Trading (requires auth + heartbeat) ──
 
     def place_order(

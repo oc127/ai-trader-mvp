@@ -139,6 +139,11 @@ class HighFreqMarketMaker:
         self._paused_until: float = 0.0
         self._total_trades: int = 0
         self._winning_trades: int = 0
+        self._reward_bands: dict[str, float] = {}
+
+    def set_reward_bands(self, bands: dict[str, float]) -> None:
+        """Set LP reward bands: {token_id: max_spread_pct}."""
+        self._reward_bands = bands
 
     @property
     def config(self) -> MakerConfig:
@@ -215,8 +220,17 @@ class HighFreqMarketMaker:
         if self.total_exposure >= self._config.max_total_exposure:
             return None
 
-        # calculate half-spread (at least our minimum, but inside the book spread)
+        # calculate half-spread — prefer LP reward band when available
+        reward_half = None
+        yes_band = self._reward_bands.get(market.yes_token_id, 0)
+        no_band = self._reward_bands.get(market.no_token_id, 0)
+        if yes_band > 0 or no_band > 0:
+            band = max(yes_band, no_band)
+            reward_half = band * 0.5
+
         half_spread = max(self._config.min_half_spread, book_spread * 0.4)
+        if reward_half and reward_half > self._config.min_half_spread:
+            half_spread = min(half_spread, reward_half)
         half_spread = min(half_spread, self._config.max_half_spread)
 
         # inventory skew: shift mid away from our inventory to encourage reducing it
@@ -256,7 +270,7 @@ class HighFreqMarketMaker:
             bid_size=round(bid_shares, 2),
             ask_size=round(ask_shares, 2),
             spread=round(ask - bid, 4),
-            reason=f"mid={mid:.2f} skew={skew:+.3f} hs={half_spread:.3f}",
+            reason=f"mid={mid:.2f} skew={skew:+.3f} hs={half_spread:.3f}{' LP' if reward_half else ''}",
         )
 
     def on_fill(self, condition_id: str, question: str, yes_tid: str, no_tid: str,

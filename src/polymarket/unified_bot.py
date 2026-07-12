@@ -533,6 +533,19 @@ class UnifiedPolymarketBot:
             log.error(f"Market scan failed: {e}")
             self._state.errors_today += 1
 
+        if self._maker_enabled:
+            try:
+                bands = self._client.get_reward_markets()
+                if bands:
+                    self._maker.set_reward_bands(bands)
+                    eligible = sum(
+                        1 for m in self._active_markets
+                        if m.yes_token_id in bands or m.no_token_id in bands
+                    )
+                    log.info(f"LP rewards: {eligible}/{len(self._active_markets)} active markets eligible")
+            except Exception as e:
+                log.debug(f"LP reward fetch failed: {e}")
+
     def _quote_market(self, market: Market) -> None:
         cid = market.condition_id
         try:
