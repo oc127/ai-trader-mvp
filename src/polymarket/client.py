@@ -75,7 +75,7 @@ class PolymarketClient:
                     "passphrase": self._api_passphrase,
                 })
             else:
-                creds = self._clob_client.create_or_derive_api_creds()
+                creds = self._clob_client.create_or_derive_api_key()
                 log.info(f"Derived API creds: key={creds.get('apiKey', '')[:8]}...")
 
             log.info("CLOB V2 client initialized")
@@ -139,12 +139,17 @@ class PolymarketClient:
             if not tokens or len(tokens) < 2:
                 continue
 
-            prices_str = m.get("outcomePrices", "0.5,0.5")
-            if isinstance(prices_str, str):
-                parts = prices_str.split(",")
-                yes_price = float(parts[0]) if parts else 0.5
-            elif isinstance(prices_str, list):
-                yes_price = float(prices_str[0]) if prices_str else 0.5
+            prices_raw = m.get("outcomePrices", "0.5,0.5")
+            if isinstance(prices_raw, list):
+                yes_price = float(prices_raw[0]) if prices_raw else 0.5
+            elif isinstance(prices_raw, str):
+                import json as _json
+                try:
+                    parsed = _json.loads(prices_raw)
+                    yes_price = float(parsed[0]) if parsed else 0.5
+                except (ValueError, TypeError):
+                    parts = prices_raw.split(",")
+                    yes_price = float(parts[0]) if parts else 0.5
             else:
                 yes_price = 0.5
 
