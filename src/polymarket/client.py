@@ -39,7 +39,7 @@ class PolymarketClient:
         self._private_key = pm_cfg.get("private_key") or os.getenv("POLYMARKET_PRIVATE_KEY", "")
         self._funder = pm_cfg.get("funder_address") or os.getenv("POLYMARKET_FUNDER_ADDRESS", "")
         self._chain_id = pm_cfg.get("chain_id", 137)
-        self._signature_type = pm_cfg.get("signature_type", 2)  # GNOSIS_SAFE for proxy wallets
+        self._signature_type = pm_cfg.get("signature_type", 0)  # EOA default
 
         self._clob_client: Any = None
         self._rate_limit_delay = pm_cfg.get("rate_limit_delay", 0.2)
@@ -128,11 +128,15 @@ class PolymarketClient:
         self._heartbeat_running = False
 
     def _heartbeat_loop(self) -> None:
+        heartbeat_id = ""
         while self._heartbeat_running:
             try:
                 client = self._init_clob()
-                client.post_heartbeat()
+                resp = client.post_heartbeat(heartbeat_id)
+                if isinstance(resp, dict) and resp.get("heartbeat_id"):
+                    heartbeat_id = resp["heartbeat_id"]
             except Exception:
+                heartbeat_id = ""
                 log.debug("Heartbeat failed (will retry)")
             time.sleep(10)
 
