@@ -44,6 +44,7 @@ class PolymarketClient:
         self._clob_client: Any = None
         self._rate_limit_delay = pm_cfg.get("rate_limit_delay", 0.2)
         self._last_request_ts = 0.0
+        self._initial_balance = float(pm_cfg.get("initial_balance", 0))
 
         # heartbeat thread — required or all orders get cancelled
         self._heartbeat_thread: Optional[threading.Thread] = None
@@ -353,18 +354,30 @@ class PolymarketClient:
             return []
 
     def get_balance(self) -> float:
-        """Get USDC balance on Polymarket (multi-method with fallback)."""
+        """Get USDC balance on Polymarket (multi-method with fallback).
+
+        The CLOB API returns balance for the signer address, but for proxy wallets
+        the funds are in the funder address. We try multiple methods:
+        1. SDK balance-allowance (works if API maps signer→proxy correctly)
+        2. On-chain USDC query of the proxy wallet via Polygon RPC
+        3. Config-specified initial balance as final fallback
+        """
         # Method 1: SDK get_balance_allowance
         amount = self._balance_via_sdk()
         if amount > 0:
             return amount
 
-        # Method 2: Direct on-chain USDC query on Polygon
+        # Method 2: Direct on-chain USDC query on Polygon (proxy wallet)
         amount = self._balance_via_polygon_rpc()
         if amount > 0:
             return amount
 
-        log.warning("All balance methods returned 0")
+        # Method 3: Config fallback (user-specified known balance)
+        if self._initial_balance > 0:
+            log.info(f"Using config initial_balance: ${self._initial_balance:.2f}")
+            return self._initial_balance
+
+        log.warning("All balance methods returned 0 — set polymarket.initial_balance in config")
         return 0.0
 
     def _balance_via_sdk(self) -> float:
@@ -374,36 +387,21 @@ class PolymarketClient:
             self._throttle()
             from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
 
-            # First update/refresh the balance state
-            try:
-                params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
-                client.update_balance_allowance(params)
-            except Exception:
-                pass
-
-            self._throttle()
             params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
             bal = client.get_balance_allowance(params)
-            log.info(f"balance-allowance raw: {bal}")
 
-            raw = self._extract_balance_value(bal)
-            amount = self._normalize_usdc(raw)
-            if amount > 0:
-                return amount
-
-            # Try without params as fallback
-            self._throttle()
-            bal2 = client.get_balance_allowance()
-            if bal2 != bal:
-                log.info(f"balance-allowance (no params) raw: {bal2}")
-                raw2 = self._extract_balance_value(bal2)
-                return self._normalize_usdc(raw2)
+            if isinstance(bal, dict):
+                raw = float(bal.get("balance", 0) or 0)
+                if raw > 0:
+                    amount = raw / 1e6 if raw > 1_000_000 else raw
+                    log.info(f"SDK balance: ${amount:.2f}")
+                    return amount
         except Exception as e:
             log.debug(f"SDK balance failed: {e}")
         return 0.0
 
     def _balance_via_polygon_rpc(self) -> float:
-        """Query USDC balance directly from Polygon via public RPC."""
+        """Query USDC balance of proxy wallet directly on Polygon."""
         wallet = self._funder
         if not wallet:
             try:
@@ -412,7 +410,9 @@ class PolymarketClient:
             except Exception:
                 return 0.0
 
-        # USDC on Polygon (both bridged and native)
+        log.debug(f"Querying Polygon RPC for wallet {wallet[:12]}...")
+
+        # USDC contracts on Polygon
         usdc_contracts = [
             "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",  # USDC.e (bridged, 6 dec)
             "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",  # native USDC (6 dec)
@@ -420,6 +420,8 @@ class PolymarketClient:
         rpcs = [
             "https://polygon-rpc.com",
             "https://rpc.ankr.com/polygon",
+            "https://polygon.llamarpc.com",
+            "https://1rpc.io/matic",
         ]
 
         total = 0.0
@@ -430,6 +432,8 @@ class PolymarketClient:
 
         if total > 0:
             log.info(f"Polygon RPC balance: ${total:.2f} (wallet={wallet[:10]}...)")
+        else:
+            log.debug("Polygon RPC: all USDC balances are 0 (funds likely in exchange contract)")
         return total
 
     @staticmethod
@@ -437,7 +441,6 @@ class PolymarketClient:
         """Call balanceOf(address) on an ERC-20 contract via JSON-RPC."""
         import requests
 
-        # balanceOf(address) selector = 0x70a08231, padded address
         addr_padded = wallet.lower().replace("0x", "").zfill(64)
         data = f"0x70a08231000000000000000000000000{addr_padded}"
         payload = {
@@ -449,52 +452,13 @@ class PolymarketClient:
 
         for rpc in rpcs:
             try:
-                resp = requests.post(rpc, json=payload, timeout=10)
+                resp = requests.post(rpc, json=payload, timeout=8)
+                if resp.status_code != 200:
+                    continue
                 result = resp.json().get("result", "0x0")
-                wei = int(result, 16)
-                return wei / 1e6  # USDC has 6 decimals
+                if result and result != "0x":
+                    wei = int(result, 16)
+                    return wei / 1e6
             except Exception:
                 continue
         return 0.0
-
-    @staticmethod
-    def _extract_balance_value(bal) -> float:
-        """Extract numeric value from various response formats."""
-        if bal is None:
-            return 0.0
-        if isinstance(bal, (int, float)):
-            return float(bal)
-        if isinstance(bal, str):
-            try:
-                return float(bal)
-            except ValueError:
-                return 0.0
-        if isinstance(bal, dict):
-            # Try all known field names
-            for key in ("allowance", "balance", "available", "amount", "value"):
-                if key in bal:
-                    try:
-                        return float(bal[key])
-                    except (ValueError, TypeError):
-                        continue
-            # If single-key dict, use whatever value is there
-            if len(bal) == 1:
-                try:
-                    return float(next(iter(bal.values())))
-                except (ValueError, TypeError):
-                    pass
-        if hasattr(bal, "allowance"):
-            return float(bal.allowance or 0)
-        if hasattr(bal, "balance"):
-            return float(bal.balance or 0)
-        return 0.0
-
-    @staticmethod
-    def _normalize_usdc(raw: float) -> float:
-        """Convert raw value to USDC (handles wei format)."""
-        if raw <= 0:
-            return 0.0
-        # If > 1M, it's in wei (6 decimals)
-        if raw > 1_000_000:
-            return raw / 1e6
-        return raw

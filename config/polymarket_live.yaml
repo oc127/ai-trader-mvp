@@ -4,6 +4,9 @@
 polymarket:
   paper_mode: false
 
+  # Known account balance (fallback when API can't query proxy wallet balance)
+  initial_balance: 59.0
+
   # Chain
   chain_id: 137  # Polygon mainnet
   signature_type: 2  # GNOSIS_SAFE for proxy wallets (Polymarket default)
