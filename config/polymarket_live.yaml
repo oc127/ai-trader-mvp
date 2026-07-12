@@ -17,7 +17,7 @@ polymarket:
   # ── HFT Market Maker (Layer 1) ──
   hf_market_maker:
     # Spread — wider in live to protect against adverse selection
-    min_half_spread: 0.025      # 2.5 cents minimum (wider than paper)
+    min_half_spread: 0.01       # 1 cent minimum half-spread
     max_half_spread: 0.06       # widen up to 6 cents under stress
 
     # Inventory skew
@@ -31,7 +31,7 @@ polymarket:
     # Market selection — stricter filters
     min_market_liquidity: 30000     # $30K liquidity minimum
     min_market_volume_24h: 10000    # $10K 24h volume minimum
-    min_book_spread: 0.04           # only trade if book spread > 4 cents
+    min_book_spread: 0.01           # trade if book spread > 1 cent
     price_band_low: 0.20            # avoid extremes
     price_band_high: 0.80
     max_markets: 3                  # fewer markets = better focus

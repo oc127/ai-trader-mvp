@@ -543,6 +543,8 @@ class UnifiedPolymarketBot:
 
         quote = self._maker.generate_quotes(market, book_spread)
         if not quote:
+            if self._state.cycle_count <= 5:
+                log.info(f"No quote: {market.question[:40]} spread={book_spread:.4f}")
             return
 
         prev = self._active_quotes.get(cid)

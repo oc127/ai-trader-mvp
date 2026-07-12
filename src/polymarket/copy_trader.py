@@ -205,8 +205,9 @@ class CopyTrader:
 
     def should_copy(self, address: str) -> bool:
         """Check cooldown for a specific trader."""
-        last = self._last_copy_ts.get(address, 0)
-        return (time.monotonic() - last) >= self._config.cooldown_per_trader
+        if address not in self._last_copy_ts:
+            return True
+        return (time.monotonic() - self._last_copy_ts[address]) >= self._config.cooldown_per_trader
 
     def calculate_copy_size(self, original_size: float) -> float:
         """Scale down the trade size for our copy."""
