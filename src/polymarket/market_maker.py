@@ -18,7 +18,7 @@ We manage this by:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from src.logger import get_logger
@@ -161,7 +161,11 @@ class HighFreqMarketMaker:
         return False
 
     def select_markets(self, markets: list) -> list:
-        """Filter markets suitable for market making."""
+        """Filter markets suitable for market making.
+
+        Prefers markets with moderate liquidity — too liquid means spreads
+        are too tight to profit; too illiquid means fills are rare.
+        """
         eligible = []
         for m in markets:
             if not m.active:
@@ -174,8 +178,17 @@ class HighFreqMarketMaker:
                 continue
             eligible.append(m)
 
-        # rank by volume * liquidity (proxy for market quality)
-        eligible.sort(key=lambda m: m.volume_24h * m.liquidity, reverse=True)
+        # Rank by moderate liquidity sweet spot: prefer markets that are liquid
+        # enough to fill but not so liquid that spreads are sub-penny.
+        # Score peaks around $50K-$200K liquidity range.
+        def _score(m):
+            liq = m.liquidity
+            sweet_spot = 100_000
+            liq_score = 1.0 / (1.0 + abs(liq - sweet_spot) / sweet_spot)
+            vol_score = min(m.volume_24h / 10_000, 2.0)
+            return liq_score * vol_score
+
+        eligible.sort(key=_score, reverse=True)
         return eligible[: self._config.max_markets]
 
     def generate_quotes(self, market, book_spread: float) -> Optional[QuotePair]:

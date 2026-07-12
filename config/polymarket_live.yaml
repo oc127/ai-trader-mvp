@@ -28,13 +28,13 @@ polymarket:
     max_position_per_market: 50.0   # $50 max per market
     max_total_exposure: 150.0       # $150 total across all markets
 
-    # Market selection — stricter filters
-    min_market_liquidity: 30000     # $30K liquidity minimum
-    min_market_volume_24h: 10000    # $10K 24h volume minimum
-    min_book_spread: 0.01           # trade if book spread > 1 cent
-    price_band_low: 0.20            # avoid extremes
-    price_band_high: 0.80
-    max_markets: 3                  # fewer markets = better focus
+    # Market selection — find markets with quotable spreads
+    min_market_liquidity: 5000      # $5K minimum (wider spreads here)
+    min_market_volume_24h: 1000     # $1K 24h volume minimum
+    min_book_spread: 0.02           # only quote if spread > 2 cents
+    price_band_low: 0.15            # avoid extremes
+    price_band_high: 0.85
+    max_markets: 5                  # more markets = more chances
 
     # Inventory management — aggressive flatten
     max_inventory_age_seconds: 180  # flatten after 3 minutes (not 5)
