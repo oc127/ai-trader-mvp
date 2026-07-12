@@ -305,7 +305,7 @@ class UnifiedPolymarketBot:
             if token_id in self._edge_positions:
                 continue
 
-            balance = self._paper.get_balance() if self._paper_mode and self._paper else 0
+            balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
             exposure = self._get_edge_exposure()
             check = self._risk.check_opportunity(opp, self._state, exposure, balance)
             if not check.passed:
@@ -346,7 +346,7 @@ class UnifiedPolymarketBot:
         return ranked
 
     def _execute_edge_trade(self, opp: Opportunity) -> bool:
-        balance = self._paper.get_balance() if self._paper_mode and self._paper else 0
+        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
         exposure = self._get_edge_exposure()
         size = self._risk.size_position(opp, balance, exposure)
         if size <= 0:
@@ -641,8 +641,8 @@ class UnifiedPolymarketBot:
         copy_status = self._copy_trader.status()
         risk_status = self._risk.status()
         uptime = (time.monotonic() - self._start_time) / 3600
-        bal = self._paper.get_balance() if self._paper_mode and self._paper else 0
-        equity = self._paper.get_equity() if self._paper_mode and self._paper else 0
+        bal = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+        equity = self._paper.get_equity() if self._paper_mode and self._paper else self._client.get_balance()
         total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
 
         log.info("─" * 55)

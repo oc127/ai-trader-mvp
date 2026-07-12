@@ -352,8 +352,9 @@ class PolymarketClient:
         self._throttle()
         try:
             bal = client.get_balance_allowance()
+            log.debug(f"get_balance_allowance returned: {type(bal).__name__} = {bal}")
             if isinstance(bal, dict):
-                raw = bal.get("balance", 0)
+                raw = bal.get("balance", bal.get("available", 0))
             elif hasattr(bal, "balance"):
                 raw = bal.balance
             else:
@@ -363,20 +364,6 @@ class PolymarketClient:
             if amount > 1_000_000:
                 amount = amount / 1e6
             return amount
-        except Exception:
-            log.debug("get_balance_allowance failed, trying fallback")
-        # fallback: try collateral balance
-        try:
-            import requests
-            self._throttle()
-            resp = requests.get(
-                f"{CLOB_API}/balance",
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=10,
-            )
-            if resp.ok:
-                data = resp.json()
-                return float(data.get("balance", 0))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"get_balance_allowance failed: {e}")
         return 0.0
