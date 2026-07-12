@@ -13,7 +13,7 @@ polymarket:
 
   # Chain
   chain_id: 137  # Polygon mainnet
-  signature_type: 1  # POLY_PROXY — EOA key signs, proxy wallet holds funds
+  signature_type: 3  # POLY_1271 — Deposit Wallet (EIP-1271 smart contract wallet)
 
   # Rate limiting
   rate_limit_delay: 0.25  # slightly more conservative than paper
