@@ -76,7 +76,16 @@ class PolymarketClient:
                 })
             else:
                 creds = self._clob_client.create_or_derive_api_key()
-                log.info(f"Derived API creds: key={creds.get('apiKey', '')[:8]}...")
+                if hasattr(creds, "api_key"):
+                    self._clob_client.set_api_creds({
+                        "apiKey": creds.api_key,
+                        "secret": creds.api_secret,
+                        "passphrase": creds.api_passphrase,
+                    })
+                    log.info(f"Derived API creds: key={creds.api_key[:8]}...")
+                else:
+                    key = creds.get("apiKey", "") if isinstance(creds, dict) else str(creds)
+                    log.info(f"Derived API creds: {key[:8]}...")
 
             log.info("CLOB V2 client initialized")
             return self._clob_client
