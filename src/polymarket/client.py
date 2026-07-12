@@ -39,7 +39,7 @@ class PolymarketClient:
         self._private_key = pm_cfg.get("private_key") or os.getenv("POLYMARKET_PRIVATE_KEY", "")
         self._funder = pm_cfg.get("funder_address") or os.getenv("POLYMARKET_FUNDER_ADDRESS", "")
         self._chain_id = pm_cfg.get("chain_id", 137)
-        self._signature_type = pm_cfg.get("signature_type", 0)  # EOA default
+        self._signature_type = pm_cfg.get("signature_type", 1)  # POLY_PROXY default
 
         self._clob_client: Any = None
         self._rate_limit_delay = pm_cfg.get("rate_limit_delay", 0.2)

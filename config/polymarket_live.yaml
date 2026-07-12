@@ -9,11 +9,11 @@ polymarket:
 
   # Proxy wallet address (the actual trading address on Polymarket)
   # Set this OR POLYMARKET_FUNDER_ADDRESS in .env
-  # funder_address: "0xcFe7eAc0096C89FF85F8Cd05D27257957f8007fA"
+  funder_address: "0x8cf9DD5089Eb8458bFbD0A541D5D64Fe994e2dE3"
 
   # Chain
   chain_id: 137  # Polygon mainnet
-  signature_type: 0  # EOA — private key directly controls the wallet
+  signature_type: 1  # POLY_PROXY — EOA key signs, proxy wallet holds funds
 
   # Rate limiting
   rate_limit_delay: 0.25  # slightly more conservative than paper
