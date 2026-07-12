@@ -5,7 +5,7 @@ polymarket:
   paper_mode: false
 
   # Known account balance (fallback when API can't query proxy wallet balance)
-  initial_balance: 59.0
+  initial_balance: 150.0
 
   # Proxy wallet address (the actual trading address on Polymarket)
   # Set this OR POLYMARKET_FUNDER_ADDRESS in .env
@@ -28,9 +28,9 @@ polymarket:
     skew_factor: 0.015          # stronger skew to reduce directional risk
 
     # Sizing — START SMALL, scale up after profitable days
-    quote_size_usd: 10.0        # $10 per side (half of paper)
-    max_position_per_market: 50.0   # $50 max per market
-    max_total_exposure: 150.0       # $150 total across all markets
+    quote_size_usd: 15.0        # $15 per side
+    max_position_per_market: 75.0   # $75 max per market
+    max_total_exposure: 300.0       # $300 total across all markets
 
     # Market selection — find markets with quotable spreads
     min_market_liquidity: 5000      # $5K minimum (wider spreads here)
@@ -38,14 +38,14 @@ polymarket:
     min_book_spread: 0.0            # disabled — place resting orders regardless
     price_band_low: 0.15            # avoid extremes
     price_band_high: 0.85
-    max_markets: 5                  # more markets = more chances
+    max_markets: 8                  # more markets = more LP rewards
 
     # Inventory management — aggressive flatten
     max_inventory_age_seconds: 180  # flatten after 3 minutes (not 5)
     flatten_at_pct: 0.70            # flatten at 70% of max (not 80%)
 
     # Risk — tight stops
-    max_daily_loss: 25.0            # stop at $25 loss (half of paper)
+    max_daily_loss: 40.0            # stop at $40 loss
     max_consecutive_losses: 3       # pause after 3 consecutive losses
     pause_after_loss_seconds: 300   # 5 min cooldown (longer than paper)
 
@@ -99,7 +99,7 @@ polymarket:
   arbitrage:
     min_net_profit: 0.01          # $0.01 minimum (higher than paper)
     min_roi_pct: 0.5              # 0.5% minimum ROI
-    max_arb_size_usd: 30.0        # smaller max per trade
+    max_arb_size_usd: 50.0        # max per arb trade
     min_liquidity: 10000          # higher liquidity requirement
     min_volume: 5000
     snipe_min_price: 0.96         # stricter snipe threshold
