@@ -31,7 +31,7 @@ polymarket:
     # Market selection — find markets with quotable spreads
     min_market_liquidity: 5000      # $5K minimum (wider spreads here)
     min_market_volume_24h: 1000     # $1K 24h volume minimum
-    min_book_spread: 0.02           # only quote if spread > 2 cents
+    min_book_spread: 0.0            # disabled — place resting orders regardless
     price_band_low: 0.15            # avoid extremes
     price_band_high: 0.85
     max_markets: 5                  # more markets = more chances

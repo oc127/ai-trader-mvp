@@ -194,13 +194,11 @@ class HighFreqMarketMaker:
     def generate_quotes(self, market, book_spread: float) -> Optional[QuotePair]:
         """Generate a bid/ask quote pair for a market.
 
-        Returns None if the market doesn't meet spread requirements or
-        we're at position limits.
+        Places resting limit orders at min_half_spread distance from mid.
+        On tight markets, these sit behind the best bid/ask and fill on
+        volatility sweeps — this is intentional for small accounts.
         """
         if self.is_paused:
-            return None
-
-        if book_spread < self._config.min_book_spread:
             return None
 
         mid = market.yes_price

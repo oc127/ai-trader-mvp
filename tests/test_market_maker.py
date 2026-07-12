@@ -108,11 +108,13 @@ class TestQuoteGeneration:
         quote = mm.generate_quotes(m, book_spread=0.10)
         assert quote.bid_price < quote.ask_price
 
-    def test_rejects_narrow_spread(self):
+    def test_quotes_on_narrow_spread(self):
+        """Bot places resting orders even on tight-spread markets."""
         mm = HighFreqMarketMaker(_cfg())
         m = _market(yes_price=0.50)
         quote = mm.generate_quotes(m, book_spread=0.01)
-        assert quote is None
+        assert quote is not None
+        assert quote.spread >= mm.config.min_half_spread * 2
 
     def test_spread_inside_book(self):
         mm = HighFreqMarketMaker(_cfg())
