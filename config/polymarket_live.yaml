@@ -40,14 +40,14 @@ polymarket:
     price_band_high: 0.95           # include high-conviction markets
     max_markets: 12                 # max LP reward coverage
 
-    # Inventory management — ultra-fast flatten for HFT
-    max_inventory_age_seconds: 90   # flatten after 90s — never hold risk
+    # Inventory management — give both sides time to fill
+    max_inventory_age_seconds: 600  # flatten after 10 min — let spread trades complete
     flatten_at_pct: 0.50            # start reducing at 50% — early de-risk
 
     # Risk — fast recovery HFT style
     max_daily_loss: 15.0            # stop at $15 loss (~20% of account)
-    max_consecutive_losses: 4       # pause after 4 consecutive losses
-    pause_after_loss_seconds: 120   # 2 min cooldown — get back in fast
+    max_consecutive_losses: 10      # pause after 10 consecutive losses (flatten counts as loss)
+    pause_after_loss_seconds: 60    # 1 min cooldown — get back in fast
 
   # ── Cycle timing — HFT speed ──
   cycle_interval_seconds: 2        # 2-second cycles — max throughput

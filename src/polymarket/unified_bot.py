@@ -689,12 +689,24 @@ class UnifiedPolymarketBot:
             order = self._maker.flatten_inventory(inv.condition_id)
             if not order:
                 continue
+
+            # skip flatten if unrealized loss > $0.50 — wait for price recovery
+            market = next((m for m in self._active_markets if m.condition_id == inv.condition_id), None)
+            if market and not self._paper_mode:
+                is_yes = (order["token_id"] == inv.yes_token_id)
+                avg_price = inv.yes_avg_price if is_yes else inv.no_avg_price
+                current = market.yes_price if is_yes else (1.0 - market.yes_price)
+                unrealized = (current - avg_price) * order["size"]
+                if unrealized < -0.50:
+                    age = inv.seconds_since_trade
+                    log.info(f"Defer flatten {inv.question[:30]}: loss=${unrealized:.2f} age={age:.0f}s")
+                    continue
+
             log.warning(f"FLATTEN: {order['reason']}")
             self._alert(f"FLATTEN: {order['reason']}", alert_type="flatten", level="warning")
             side = Side.SELL if order["side"] == "SELL" else Side.BUY
 
             if self._paper_mode and self._paper:
-                market = next((m for m in self._active_markets if m.condition_id == inv.condition_id), None)
                 sell_price = market.yes_price * 0.99 if market else 0.50
                 result = self._paper.place_order(
                     order["token_id"], side, sell_price, order["size"], market,
