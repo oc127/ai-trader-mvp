@@ -373,12 +373,17 @@ class UnifiedPolymarketBot:
         token_id = opp.market.yes_token_id if opp.outcome == Outcome.YES else opp.market.no_token_id
         price = opp.market_prob
 
+        if price <= 0:
+            return False
+        shares = max(size / price, 5.0)
+        shares = round(shares, 2)
+
         log.info(
             f"EDGE TRADE: {opp.outcome.value} {opp.market.question[:50]} | "
-            f"price={price:.3f} size=${size:.2f} edge={opp.edge:.1%}"
+            f"price={price:.3f} size=${size:.2f} shares={shares:.2f} edge={opp.edge:.1%}"
         )
 
-        result = self._place(token_id, Side.BUY, price, size, opp.market)
+        result = self._place(token_id, Side.BUY, price, shares, opp.market)
         if result and result.success and result.filled_size > 0:
             self._state.trades_today += 1
             self._edge_positions[token_id] = _EdgePosition(
@@ -448,18 +453,23 @@ class UnifiedPolymarketBot:
 
         for opp in opps[:3]:
             if opp.arb_type == "complete_set":
-                size = min(opp.net_profit * 100, self._arb_engine.config.max_arb_size_usd)
-                if size < 2.0:
+                usd_size = min(opp.net_profit * 100, self._arb_engine.config.max_arb_size_usd)
+                if usd_size < 2.0:
                     continue
+                total_cost_per_share = opp.yes_cost + opp.no_cost
+                if total_cost_per_share <= 0:
+                    continue
+                shares = max(usd_size / total_cost_per_share, 5.0)
+                shares = round(shares, 2)
                 log.info(
                     f"ARB: {opp.market.question[:40]} | cost={opp.total_cost:.3f} "
-                    f"net=${opp.net_profit:.4f} roi={opp.roi_pct:.2f}%"
+                    f"shares={shares:.2f} net=${opp.net_profit:.4f} roi={opp.roi_pct:.2f}%"
                 )
                 buy_yes = self._place(
-                    opp.market.yes_token_id, Side.BUY, opp.yes_cost, size / 2, opp.market,
+                    opp.market.yes_token_id, Side.BUY, opp.yes_cost, shares, opp.market,
                 )
                 buy_no = self._place(
-                    opp.market.no_token_id, Side.BUY, opp.no_cost, size / 2, opp.market,
+                    opp.market.no_token_id, Side.BUY, opp.no_cost, shares, opp.market,
                 )
                 if buy_yes and buy_yes.success and buy_no and buy_no.success:
                     filled = min(buy_yes.filled_size, buy_no.filled_size)
@@ -474,17 +484,21 @@ class UnifiedPolymarketBot:
                         alert_type="arb",
                     )
             elif opp.arb_type == "resolution_snipe":
-                size = min(20.0, self._arb_engine.config.max_arb_size_usd)
+                usd_size = min(20.0, self._arb_engine.config.max_arb_size_usd)
                 token_id = (
                     opp.market.yes_token_id if opp.snipe_side == "YES"
                     else opp.market.no_token_id
                 )
                 price = opp.yes_cost if opp.snipe_side == "YES" else opp.no_cost
+                if price <= 0:
+                    continue
+                shares = max(usd_size / price, 5.0)
+                shares = round(shares, 2)
                 log.info(
                     f"SNIPE: {opp.snipe_side} {opp.market.question[:40]} "
-                    f"@ {price:.3f} net=${opp.net_profit:.4f}"
+                    f"@ {price:.3f} size=${usd_size:.2f} shares={shares:.2f} net=${opp.net_profit:.4f}"
                 )
-                result = self._place(token_id, Side.BUY, price, size, opp.market)
+                result = self._place(token_id, Side.BUY, price, shares, opp.market)
                 if result and result.success and result.filled_size > 0:
                     self._arb_engine.record_fill(opp, result.filled_size, price)
                     pnl = opp.net_profit * result.filled_size
@@ -535,9 +549,14 @@ class UnifiedPolymarketBot:
                 side = Side.BUY if raw_side == "BUY" else Side.SELL
                 price = float(trade.get("price", 0.50) or 0.50)
 
+                if price <= 0:
+                    continue
+                copy_shares = max(copy_size / price, 5.0)
+                copy_shares = round(copy_shares, 2)
+
                 time.sleep(self._copy_trader.config.trade_delay)
 
-                result = self._place(token_id, side, price, copy_size)
+                result = self._place(token_id, side, price, copy_shares)
                 if result and result.success and result.filled_size > 0:
                     self._copy_trader.record_copy(t.address)
                     self._state.trades_today += 1
