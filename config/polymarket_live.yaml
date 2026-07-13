@@ -20,8 +20,8 @@ polymarket:
 
   # ── HFT Market Maker (Layer 1) ──
   hf_market_maker:
-    # Spread — tight for HFT fill rate + LP Q-score
-    min_half_spread: 0.005      # 0.5 cent — tight for max fills & LP rewards
+    # Spread — 1 tick minimum to survive rounding
+    min_half_spread: 0.01       # 1 cent — one full tick, survives rounding
     max_half_spread: 0.03       # cap at 3 cents (tighter = better Q-score)
 
     # Inventory skew
@@ -33,8 +33,8 @@ polymarket:
     max_total_exposure: 40.0        # $40 total — leave room for flatten
 
     # Market selection — cast wide net for LP rewards
-    min_market_liquidity: 3000      # $3K minimum — wider net for more markets
-    min_market_volume_24h: 500      # $500 24h volume — include quieter markets
+    min_market_liquidity: 5000      # $5K minimum — skip dead markets
+    min_market_volume_24h: 2000     # $2K 24h volume — need active trading
     min_book_spread: 0.0            # disabled — place resting orders regardless
     price_band_low: 0.10            # wider band = more markets eligible
     price_band_high: 0.90

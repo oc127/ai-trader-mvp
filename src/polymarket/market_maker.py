@@ -323,12 +323,13 @@ class HighFreqMarketMaker:
             if ask > best_ask:
                 ask = best_ask
 
-        # round to tick size (0.01 for prices 0.04–0.96, 0.001 outside)
+        # round to tick size: bid DOWN, ask UP to guarantee spread
+        import math
         tick = 0.001 if (bid < 0.04 or bid > 0.96) else 0.01
-        bid = round(bid / tick) * tick
+        bid = math.floor(bid / tick) * tick
         bid = round(bid, 3)
         tick = 0.001 if (ask < 0.04 or ask > 0.96) else 0.01
-        ask = round(ask / tick) * tick
+        ask = math.ceil(ask / tick) * tick
         ask = round(ask, 3)
 
         bid = max(0.01, min(bid, 0.98))
