@@ -264,14 +264,16 @@ class HighFreqMarketMaker:
 
         adjusted_mid = mid - skew
 
-        # competitive pricing: use order book levels when available
+        # start from mid ± half_spread
+        bid = adjusted_mid - half_spread + bid_aggression
+        ask = adjusted_mid + half_spread
+
+        # competitive pricing: move toward book levels when there's room
         if best_bid > 0 and best_ask > 0 and best_ask > best_bid:
-            bid = max(best_bid + 0.01, adjusted_mid - half_spread + bid_aggression)
-            bid = min(bid, adjusted_mid - self._config.min_half_spread * 0.5)
-            ask = min(best_ask - 0.01, adjusted_mid + half_spread)
-        else:
-            bid = adjusted_mid - half_spread + bid_aggression
-            ask = adjusted_mid + half_spread
+            if bid < best_bid:
+                bid = best_bid
+            if ask > best_ask:
+                ask = best_ask
 
         # round to tick size (0.01 for prices 0.04–0.96, 0.001 outside)
         tick = 0.001 if (bid < 0.04 or bid > 0.96) else 0.01
