@@ -36,8 +36,8 @@ polymarket:
     min_market_liquidity: 5000      # $5K minimum — skip dead markets
     min_market_volume_24h: 2000     # $2K 24h volume — need active trading
     min_book_spread: 0.0            # disabled — place resting orders regardless
-    price_band_low: 0.10            # wider band = more markets eligible
-    price_band_high: 0.90
+    price_band_low: 0.05            # include cheap markets for sniping
+    price_band_high: 0.95           # include high-conviction markets
     max_markets: 12                 # max LP reward coverage
 
     # Inventory management — ultra-fast flatten for HFT
@@ -51,7 +51,7 @@ polymarket:
 
   # ── Cycle timing — HFT speed ──
   cycle_interval_seconds: 2        # 2-second cycles — max throughput
-  scan_interval_seconds: 60        # rescan markets every 60s
+  scan_interval_seconds: 30        # rescan + cancel-replace every 30s — stay at top of book
   report_interval_seconds: 180     # status report every 3 minutes
 
   # ── Layer toggles ──

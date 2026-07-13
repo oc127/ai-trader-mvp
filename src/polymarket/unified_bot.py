@@ -553,14 +553,16 @@ class UnifiedPolymarketBot:
                 min_liquidity=self._maker.config.min_market_liquidity,
             )
             self._active_markets = self._maker.select_markets(all_markets)
-            # sync committed balance from actual open orders
+            # cancel all resting orders and re-quote fresh — prevents stale queue position
             if not self._paper_mode:
                 try:
                     open_orders = self._client.get_open_orders()
-                    self._committed_usd = sum(o.price * o.size for o in open_orders)
-                    # clear stale quote cache when no orders exist — force re-quoting
-                    if not open_orders:
-                        self._active_quotes.clear()
+                    if open_orders:
+                        self._client.cancel_all()
+                        log.info(f"Cancelled {len(open_orders)} stale orders for re-quote")
+                    self._committed_usd = 0.0
+                    self._active_quotes.clear()
+                    self._known_orders.clear()
                 except Exception:
                     pass
             top3 = ", ".join(

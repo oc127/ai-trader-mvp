@@ -149,22 +149,37 @@ class PolymarketClient:
         min_volume: float = 0,
         min_liquidity: float = 0,
     ) -> list[Market]:
-        """Fetch markets from Gamma API."""
+        """Fetch markets from Gamma API with multiple queries for coverage.
+
+        Queries twice: once sorted by volume, once sorted by liquidity,
+        to work around Gamma API sort unreliability. Deduplicates by condition_id.
+        """
         import requests
 
-        self._throttle()
-        params: dict[str, Any] = {
-            "limit": limit,
-            "active": active,
-            "closed": False,
-            "order": "volume24hr",
-            "ascending": False,
-        }
-        resp = requests.get(f"{GAMMA_API}/markets", params=params, timeout=15)
-        resp.raise_for_status()
+        all_raw: dict[str, dict] = {}
+
+        for sort_field in ("volume24hr", "liquidity"):
+            self._throttle()
+            params: dict[str, Any] = {
+                "limit": limit,
+                "active": active,
+                "closed": False,
+                "order": sort_field,
+                "ascending": False,
+            }
+            try:
+                resp = requests.get(f"{GAMMA_API}/markets", params=params, timeout=15)
+                resp.raise_for_status()
+                for m in resp.json():
+                    cid = str(m.get("conditionId", m.get("condition_id", "")))
+                    if cid and cid not in all_raw:
+                        all_raw[cid] = m
+            except Exception as e:
+                log.debug(f"Gamma fetch ({sort_field}) failed: {e}")
+
         markets: list[Market] = []
 
-        for m in resp.json():
+        for m in all_raw.values():
             tokens_raw = m.get("clobTokenIds") or m.get("tokens", [])
             if isinstance(tokens_raw, str):
                 import json as _json2
@@ -310,6 +325,10 @@ class PolymarketClient:
         """Place a GTC limit order on the CLOB V2."""
         client = self._init_clob()
         self._throttle()
+
+        tick = 0.001 if (price < 0.04 or price > 0.96) else 0.01
+        price = round(round(price / tick) * tick, 3)
+        size = round(size, 2)
 
         try:
             from py_clob_client_v2 import OrderArgs, OrderType

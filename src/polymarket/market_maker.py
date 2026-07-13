@@ -190,33 +190,36 @@ class HighFreqMarketMaker:
             eligible.append(m)
 
         def _score(m):
-            liq = m.liquidity
-            sweet_spot = 100_000
-            liq_score = 1.0 / (1.0 + abs(liq - sweet_spot) / sweet_spot)
-            vol_score = min(m.volume_24h / 10_000, 2.0)
-            base = liq_score * vol_score
+            vol_score = m.volume_24h / 1000.0
+            liq_score = min(m.liquidity / 50_000, 2.0)
+            base = vol_score * liq_score
 
-            # near-expiry boost: markets expiring within 7 days get priority
             days_left = self._days_to_expiry(m, now)
-            if 0.1 < days_left <= 1:
-                base *= 5.0
+            if 0.01 < days_left <= 0.5:
+                base *= 10.0
+            elif 0.5 < days_left <= 1:
+                base *= 7.0
             elif 1 < days_left <= 3:
-                base *= 3.0
+                base *= 4.0
             elif 3 < days_left <= 7:
                 base *= 2.0
+            elif days_left > 90:
+                base *= 0.1
             elif days_left > 30:
-                base *= 0.5
+                base *= 0.3
 
-            # crypto/price markets: high volume, two-sided flow, fast-moving
             q = getattr(m, "question", "").lower()
-            if any(kw in q for kw in ("bitcoin", "btc", "eth", "crypto", "price", "above", "below")):
+            cat = getattr(m, "category", "").lower()
+            combined = q + " " + cat
+            if any(kw in combined for kw in ("bitcoin", "btc", "eth", "crypto", "price above", "price below")):
+                base *= 5.0
+            elif any(kw in combined for kw in ("nba", "nfl", "mlb", "nhl", "ufc", "match", "game", "fight")):
                 base *= 3.0
-            elif any(kw in q for kw in ("world cup", "fifa", "match", "goal", "soccer", "football")):
-                base *= 2.0
-            elif any(kw in q for kw in ("today", "tonight", "this week", "tomorrow")):
+            elif any(kw in combined for kw in ("today", "tonight", "this week", "tomorrow", "daily")):
+                base *= 3.0
+            elif any(kw in combined for kw in ("trump", "president", "election", "poll")):
                 base *= 2.0
 
-            # boost LP-reward-eligible markets
             has_reward = (
                 self._reward_bands.get(getattr(m, "yes_token_id", ""), 0) > 0
                 or self._reward_bands.get(getattr(m, "no_token_id", ""), 0) > 0
@@ -230,13 +233,14 @@ class HighFreqMarketMaker:
         selected = eligible[: self._config.max_markets]
 
         if selected:
-            top = selected[0]
-            days = self._days_to_expiry(top, now)
-            exp_str = f"{days:.0f}d" if days < 999 else "n/a"
-            log.info(
-                f"Market selection: top={top.question[:45]} "
-                f"exp={exp_str} vol24h=${top.volume_24h:,.0f}"
-            )
+            for i, s in enumerate(selected[:3]):
+                days = self._days_to_expiry(s, now)
+                exp_str = f"{days:.1f}d" if days < 999 else "n/a"
+                sc = _score(s)
+                log.info(
+                    f"  #{i+1} score={sc:.1f} exp={exp_str} vol24h=${s.volume_24h:,.0f} "
+                    f"liq=${s.liquidity:,.0f} | {s.question[:50]}"
+                )
 
         return selected
 
@@ -316,12 +320,17 @@ class HighFreqMarketMaker:
         bid = adjusted_mid - half_spread + bid_aggression
         ask = adjusted_mid + half_spread
 
-        # competitive pricing: move toward book levels when there's room
+        # competitive pricing: improve by one tick to be at TOP of book
         if best_bid > 0 and best_ask > 0 and best_ask > best_bid:
-            if bid < best_bid:
-                bid = best_bid
-            if ask > best_ask:
-                ask = best_ask
+            book_tick = 0.001 if (best_bid < 0.04 or best_bid > 0.96) else 0.01
+            improved_bid = best_bid + book_tick
+            improved_ask = best_ask - book_tick
+            if improved_ask > improved_bid + book_tick:
+                bid = max(bid, improved_bid)
+                ask = min(ask, improved_ask)
+            else:
+                bid = max(bid, best_bid)
+                ask = min(ask, best_ask)
 
         # round to tick size: bid DOWN, ask UP to guarantee spread
         import math
