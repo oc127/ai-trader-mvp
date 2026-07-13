@@ -95,6 +95,7 @@ class UnifiedPolymarketBot:
         self._last_reset_day = ""
         self._last_fill_check_ts = 0.0
         self._known_orders: dict[str, dict] = {}  # order_id -> {token_id, side, price, size, cid}
+        self._committed_usd = 0.0  # USDC locked in resting orders
 
         # PnL tracking
         self._maker_pnl = 0.0
@@ -539,7 +540,17 @@ class UnifiedPolymarketBot:
                 min_liquidity=self._maker.config.min_market_liquidity,
             )
             self._active_markets = self._maker.select_markets(all_markets)
-            log.info(f"Scan: {len(all_markets)} total → {len(self._active_markets)} eligible")
+            # sync committed balance from actual open orders
+            if not self._paper_mode:
+                try:
+                    open_orders = self._client.get_open_orders()
+                    self._committed_usd = sum(o.price * o.size for o in open_orders)
+                except Exception:
+                    pass
+            log.info(
+                f"Scan: {len(all_markets)} total → {len(self._active_markets)} eligible"
+                f" | committed=${self._committed_usd:.1f}"
+            )
         except Exception as e:
             log.error(f"Market scan failed: {e}")
             self._state.errors_today += 1
@@ -575,6 +586,19 @@ class UnifiedPolymarketBot:
         if prev and abs(quote.bid_price - prev.bid_price) < 0.002 and abs(quote.ask_price - prev.ask_price) < 0.002:
             return
 
+        # check available balance before placing (reserve 20% for flatten)
+        balance = self._client.get_balance() if not self._paper_mode else (self._paper.get_balance() if self._paper else 0)
+        free_balance = balance - self._committed_usd
+        bid_cost = quote.bid_price * quote.bid_size
+        ask_cost = (1.0 - quote.ask_price) * quote.ask_size
+        total_cost = bid_cost + ask_cost
+        reserve = balance * 0.20  # keep 20% for flatten/emergencies
+
+        if free_balance - total_cost < reserve:
+            if self._state.cycle_count <= 5:
+                log.info(f"Skip quote {market.question[:30]}: free=${free_balance:.1f} need=${total_cost:.1f} reserve=${reserve:.1f}")
+            return
+
         log.info(
             f"QUOTE: {market.question[:40]} | bid={quote.bid_price:.3f} ask={quote.ask_price:.3f} "
             f"spread={quote.spread:.4f} | {quote.reason}"
@@ -584,12 +608,14 @@ class UnifiedPolymarketBot:
             quote.yes_token_id, Side.BUY, quote.bid_price, quote.bid_size, market,
         )
         if bid_result and bid_result.success:
+            self._committed_usd += bid_cost
             if bid_result.order_id:
                 self._known_orders[bid_result.order_id] = {
                     "token_id": quote.yes_token_id, "side": "BUY",
                     "price": quote.bid_price, "size": quote.bid_size,
                     "cid": cid, "question": market.question,
                     "yes_tid": market.yes_token_id, "no_tid": market.no_token_id,
+                    "cost": bid_cost,
                 }
             if bid_result.filled_size > 0:
                 self._maker.on_fill(
@@ -606,6 +632,7 @@ class UnifiedPolymarketBot:
                 quote.no_token_id, Side.BUY, no_price, quote.ask_size, market,
             )
             if ask_result and ask_result.success:
+                self._committed_usd += ask_cost
                 if ask_result.order_id:
                     self._known_orders[ask_result.order_id] = {
                         "token_id": quote.no_token_id, "side": "BUY",
@@ -647,6 +674,8 @@ class UnifiedPolymarketBot:
                     )
                     self._maker_pnl = self._maker.daily_pnl
             else:
+                # cancel resting orders for this market first to free balance
+                self._cancel_orders_for_market(inv.condition_id)
                 result = self._client.place_market_order(
                     order["token_id"], side, order["size"],
                 )
@@ -688,6 +717,7 @@ class UnifiedPolymarketBot:
                 )
                 self._state.trades_today += 1
                 self._maker_pnl = self._maker.daily_pnl
+                self._committed_usd -= info.get("cost", 0)
                 log.info(
                     f"FILL DETECTED: {info['side']} {info['question'][:40]} "
                     f"@ {info['price']:.3f} size={info['size']:.1f}"
@@ -704,7 +734,26 @@ class UnifiedPolymarketBot:
         if len(self._known_orders) > 100:
             oldest = sorted(self._known_orders.keys())[:50]
             for oid in oldest:
+                self._committed_usd -= oid_info.get("cost", 0) if (oid_info := self._known_orders.get(oid)) else 0
                 del self._known_orders[oid]
+
+        self._committed_usd = max(0, self._committed_usd)
+
+    def _cancel_orders_for_market(self, condition_id: str) -> None:
+        """Cancel all resting orders for a market to free balance."""
+        to_cancel = [
+            oid for oid, info in self._known_orders.items()
+            if info["cid"] == condition_id
+        ]
+        for oid in to_cancel:
+            try:
+                self._client.cancel_order(oid)
+                cost = self._known_orders[oid].get("cost", 0)
+                self._committed_usd = max(0, self._committed_usd - cost)
+                del self._known_orders[oid]
+                log.info(f"Cancelled order {oid[:16]}... freed ${cost:.2f}")
+            except Exception as e:
+                log.debug(f"Cancel failed: {e}")
 
     # ── Shared ──
 
