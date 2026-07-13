@@ -1,11 +1,11 @@
 # Polymarket LIVE Trading Configuration
-# REAL MONEY — $5,000 capital, balanced maker + directional
+# REAL MONEY — $25 cash, directional + snipe focus (no maker)
 
 polymarket:
   paper_mode: false
 
   # Known account balance (fallback when API can't query proxy wallet balance)
-  initial_balance: 5000.0
+  initial_balance: 25.0
 
   # Proxy wallet address (the actual trading address on Polymarket)
   # Set this OR POLYMARKET_FUNDER_ADDRESS in .env
@@ -18,36 +18,25 @@ polymarket:
   # Rate limiting
   rate_limit_delay: 0.15  # faster API calls for throughput
 
-  # ── Market Maker (Layer 1) — $5K capital ──
+  # ── Market Maker (Layer 1) — DISABLED with $25 ──
   hf_market_maker:
-    # Spread
-    min_half_spread: 0.01       # 1 cent minimum
-    max_half_spread: 0.03       # cap at 3 cents
-
-    # Inventory skew
-    skew_factor: 0.01           # moderate skew
-
-    # Sizing — $30 per side gives competitive queue position
-    quote_size_usd: 30.0        # $30 per side — visible in order book
-    max_position_per_market: 200.0  # $200 max per market
-    max_total_exposure: 2000.0      # $2K total — 40% of capital
-
-    # Market selection
-    min_market_liquidity: 10000     # $10K minimum — skip dead markets
-    min_market_volume_24h: 5000     # $5K 24h volume — need active trading
-    min_book_spread: 0.0            # place resting orders regardless
-    price_band_low: 0.10            # skip extreme-price markets for maker
+    min_half_spread: 0.01
+    max_half_spread: 0.03
+    skew_factor: 0.01
+    quote_size_usd: 5.0
+    max_position_per_market: 15.0
+    max_total_exposure: 25.0
+    min_market_liquidity: 5000
+    min_market_volume_24h: 2000
+    min_book_spread: 0.0
+    price_band_low: 0.10
     price_band_high: 0.90
-    max_markets: 8                  # focus on best 8 markets
-
-    # Inventory management
-    max_inventory_age_seconds: 600  # flatten after 10 min
-    flatten_at_pct: 0.60            # start reducing at 60%
-
-    # Risk
-    max_daily_loss: 100.0           # stop at $100 loss (2% of capital)
+    max_markets: 8
+    max_inventory_age_seconds: 600
+    flatten_at_pct: 0.60
+    max_daily_loss: 10.0
     max_consecutive_losses: 10
-    pause_after_loss_seconds: 120   # 2 min cooldown
+    pause_after_loss_seconds: 60
 
   # ── Cycle timing ──
   cycle_interval_seconds: 3        # 3-second cycles
@@ -55,7 +44,7 @@ polymarket:
   report_interval_seconds: 300     # status report every 5 minutes
 
   # ── Layer toggles ──
-  maker_enabled: true              # ON — viable with $5K
+  maker_enabled: false             # OFF — $25 cash not enough
   edge_enabled: true
   copy_enabled: true
 
@@ -78,30 +67,30 @@ polymarket:
 
   # ── Risk management (4-layer circuit breakers) ──
   risk:
-    max_position_usd: 500         # $500 max single position
-    max_total_exposure_usd: 2500  # $2.5K total (50% of capital)
-    max_single_market_pct: 0.10   # 10% max in one market
-    max_daily_trades: 200
-    max_daily_loss_usd: 100       # $100 daily stop (2% of capital)
+    max_position_usd: 10          # $10 max single position
+    max_total_exposure_usd: 20    # $20 total
+    max_single_market_pct: 0.40   # 40% max in one market (small account)
+    max_daily_trades: 50
+    max_daily_loss_usd: 5         # $5 daily stop (20% of cash)
     min_kelly: 0.01
-    max_kelly: 0.05               # slightly higher Kelly cap
+    max_kelly: 0.10               # higher Kelly — small account, bet bigger on edge
     min_edge: 0.03                # 3% min edge
-    min_confidence: "medium"
+    min_confidence: "low"         # accept low confidence with small sizes
     max_errors_before_halt: 5
     # multi-layer circuit breakers
-    max_monthly_loss_usd: 250     # L2: $250 monthly cap (5%)
-    max_drawdown_pct: 0.10        # L3: 10% max drawdown
-    max_total_loss_pct: 0.20      # L4: 20% lifetime halt
+    max_monthly_loss_usd: 10      # L2: $10 monthly cap
+    max_drawdown_pct: 0.20        # L3: 20% max drawdown
+    max_total_loss_pct: 0.30      # L4: 30% lifetime halt
     # dynamic sizing
-    loss_shrink_pct: 0.25         # shrink 25% on loss streak
-    win_grow_pct: 0.10            # grow 10% on wins
+    loss_shrink_pct: 0.25
+    win_grow_pct: 0.15            # grow 15% on wins — compound faster
     max_streak_adjustment: 0.50
 
   # ── Arbitrage (arbs + resolution snipes) ──
   arbitrage:
     min_net_profit: 0.005
     min_roi_pct: 0.3
-    max_arb_size_usd: 200.0       # $200 max per arb
+    max_arb_size_usd: 10.0        # $10 max per arb (small account)
     min_liquidity: 5000
     min_volume: 2000
     snipe_min_price: 0.90         # snipe 90¢+ tokens
@@ -115,8 +104,8 @@ polymarket:
     min_trades: 30
     max_traders_to_follow: 8
     copy_size_pct: 0.02           # 2% of their size
-    max_copy_size_usd: 50.0       # $50 max per copy (up from $10)
-    min_copy_size_usd: 5.0
+    max_copy_size_usd: 8.0        # $8 max per copy (small account)
+    min_copy_size_usd: 2.0
     scan_interval: 60.0
     trade_delay: 5.0
     cooldown_per_trader: 300.0
@@ -125,7 +114,7 @@ polymarket:
 smart_bot:
   cycle_interval_seconds: 15
   scan_interval_seconds: 120
-  max_trades_per_cycle: 3         # 3 trades per cycle
+  max_trades_per_cycle: 2         # 2 trades per cycle
   position_timeout_seconds: 1800  # 30 min timeout
   stop_loss_multiplier: 1.5
 
