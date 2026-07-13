@@ -855,7 +855,13 @@ class UnifiedPolymarketBot:
     def _place(self, token_id: str, side: Side, price: float, size: float, market: Optional[Market] = None):
         if self._paper_mode and self._paper:
             return self._paper.place_order(token_id, side, price, size, market)
-        return self._client.place_order(token_id, side, price, size)
+        result = self._client.place_order(token_id, side, price, size)
+        if result and not result.success and result.error and "geoblock" in result.error.lower():
+            log.error("GEOBLOCK detected — halting bot. Fix your VPN/network and restart.")
+            self._state.halted = True
+            self._state.halt_reason = "Geoblock: trading restricted in your region"
+            self._alert("GEOBLOCK: Bot halted — trading restricted. Check VPN.", alert_type="error", level="error")
+        return result
 
     def _get_current_prices(self) -> dict[str, float]:
         return {m.condition_id: m.yes_price for m in self._active_markets}

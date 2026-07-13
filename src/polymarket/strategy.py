@@ -120,13 +120,14 @@ class MeanReversionStrategy(PMStrategy):
 
             yes_price = market.yes_price
 
-            if yes_price < self._extreme_low:
+            if self._extreme_low >= yes_price > 0.05:
                 model_yes = yes_price + self._reversion_size
                 edge = model_yes - yes_price
-                opp = self._make_opp(market, Outcome.YES, model_yes, yes_price, edge)
-                if opp:
-                    opps.append(opp)
-            elif yes_price > self._extreme_high:
+                if edge >= self._min_edge:
+                    opp = self._make_opp(market, Outcome.YES, model_yes, yes_price, edge)
+                    if opp:
+                        opps.append(opp)
+            elif yes_price > self._extreme_high and yes_price < 0.95:
                 model_no = (1.0 - yes_price) + self._reversion_size
                 no_price = 1.0 - yes_price
                 edge = model_no - no_price

@@ -330,6 +330,10 @@ class PolymarketClient:
         price = round(round(price / tick) * tick, 3)
         size = round(size, 2)
 
+        if price < 0.001 or price > 0.999:
+            log.error(f"Order failed: invalid price ({price}), min: 0.001 - max: 0.999")
+            return TradeResult(success=False, error=f"invalid price {price}")
+
         try:
             from py_clob_client_v2 import OrderArgs, OrderType
             from py_clob_client_v2 import Side as ClobSide
@@ -348,8 +352,13 @@ class PolymarketClient:
             log.info(f"Order placed: {side.value} {size}@{price} token={token_id[:12]}... id={order_id}")
             return TradeResult(success=True, order_id=str(order_id))
         except Exception as e:
-            log.error(f"Order failed: {e}")
-            return TradeResult(success=False, error=str(e))
+            err = str(e)
+            if "geoblock" in err.lower() or "restricted" in err.lower():
+                log.error(f"GEOBLOCK: trading restricted — check VPN/network")
+                self._geoblock_detected = True
+            else:
+                log.error(f"Order failed: {e}")
+            return TradeResult(success=False, error=err)
 
     def place_market_order(
         self,
