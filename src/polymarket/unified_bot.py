@@ -210,13 +210,16 @@ class UnifiedPolymarketBot:
 
         # pause check (maker layer)
         if self._maker.is_paused:
-            if self._state.cycle_count % 60 == 0:
-                log.info(f"PAUSED — maker PnL: ${self._maker.daily_pnl:+.2f}")
-            self._alert(
-                f"CIRCUIT BREAKER: Maker paused\nDaily PnL: ${self._maker.daily_pnl:+.2f}",
-                alert_type="circuit_breaker",
-                level="warning",
-            )
+            if not getattr(self, "_pause_alerted", False):
+                self._pause_alerted = True
+                log.warning(f"PAUSED — maker PnL: ${self._maker.daily_pnl:+.2f}")
+                self._alert(
+                    f"CIRCUIT BREAKER: Maker paused\nDaily PnL: ${self._maker.daily_pnl:+.2f}",
+                    alert_type="circuit_breaker",
+                    level="warning",
+                )
+        else:
+            self._pause_alerted = False
 
         # periodic market scan
         if now - self._last_scan_ts >= self._scan_interval:

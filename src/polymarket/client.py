@@ -362,7 +362,7 @@ class PolymarketClient:
         client = self._init_clob()
         self._throttle()
         try:
-            client.cancel(order_id)
+            client.cancel_orders([order_id])
             log.info(f"Cancelled order {order_id}")
             return True
         except Exception as e:
