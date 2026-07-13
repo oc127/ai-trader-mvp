@@ -553,16 +553,30 @@ class UnifiedPolymarketBot:
                 min_liquidity=self._maker.config.min_market_liquidity,
             )
             self._active_markets = self._maker.select_markets(all_markets)
-            # cancel all resting orders and re-quote fresh — prevents stale queue position
+            # sync order state — only cancel orders whose market is no longer selected
             if not self._paper_mode:
                 try:
                     open_orders = self._client.get_open_orders()
-                    if open_orders:
-                        self._client.cancel_all()
-                        log.info(f"Cancelled {len(open_orders)} stale orders for re-quote")
-                    self._committed_usd = 0.0
-                    self._active_quotes.clear()
-                    self._known_orders.clear()
+                    self._committed_usd = sum(o.price * o.size for o in open_orders)
+                    active_cids = {m.condition_id for m in self._active_markets}
+                    stale_count = 0
+                    for o in open_orders:
+                        oid = o.order_id
+                        info = self._known_orders.get(oid)
+                        if info and info["cid"] not in active_cids:
+                            try:
+                                self._client.cancel_order(oid)
+                                self._committed_usd -= info.get("cost", 0)
+                                del self._known_orders[oid]
+                                self._active_quotes.pop(info["cid"], None)
+                                stale_count += 1
+                            except Exception:
+                                pass
+                    if stale_count:
+                        log.info(f"Cancelled {stale_count} orders on deselected markets")
+                    if not open_orders:
+                        self._active_quotes.clear()
+                        self._known_orders.clear()
                 except Exception:
                     pass
             top3 = ", ".join(
@@ -616,8 +630,11 @@ class UnifiedPolymarketBot:
             return
 
         prev = self._active_quotes.get(cid)
-        if prev and abs(quote.bid_price - prev.bid_price) < 0.002 and abs(quote.ask_price - prev.ask_price) < 0.002:
-            return
+        if prev:
+            bid_moved = abs(quote.bid_price - prev.bid_price) >= 0.01
+            ask_moved = abs(quote.ask_price - prev.ask_price) >= 0.01
+            if not bid_moved and not ask_moved:
+                return
 
         # check available balance before placing (reserve 10% for flatten)
         free_balance = balance - self._committed_usd
@@ -630,6 +647,10 @@ class UnifiedPolymarketBot:
             if self._state.cycle_count % 30 == 1:
                 log.info(f"Skip quote {market.question[:30]}: free=${free_balance:.1f} need=${total_cost:.1f} reserve=${reserve:.1f}")
             return
+
+        # cancel old orders for this market before placing new ones
+        if prev and not self._paper_mode:
+            self._cancel_orders_for_market(cid)
 
         log.info(
             f"QUOTE: {market.question[:40]} | bid={quote.bid_price:.3f} ask={quote.ask_price:.3f} "

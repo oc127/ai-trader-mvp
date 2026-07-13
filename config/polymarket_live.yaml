@@ -51,7 +51,7 @@ polymarket:
 
   # ── Cycle timing — HFT speed ──
   cycle_interval_seconds: 2        # 2-second cycles — max throughput
-  scan_interval_seconds: 30        # rescan + cancel-replace every 30s — stay at top of book
+  scan_interval_seconds: 60        # rescan markets every 60s — keep orders alive for queue priority
   report_interval_seconds: 180     # status report every 3 minutes
 
   # ── Layer toggles ──
