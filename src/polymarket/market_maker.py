@@ -205,7 +205,7 @@ class HighFreqMarketMaker:
             elif 3 < days_left <= 7:
                 base *= 2.0
             elif days_left > 30:
-                base *= 0.3
+                base *= 0.5
 
             # crypto/price markets: high volume, two-sided flow, fast-moving
             q = getattr(m, "question", "").lower()
