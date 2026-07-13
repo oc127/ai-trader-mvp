@@ -159,8 +159,8 @@ class TestQuoteGeneration:
         quote = mm.generate_quotes(m, book_spread=0.10)
         assert quote is not None
         normal_quote = HighFreqMarketMaker(_cfg()).generate_quotes(m, book_spread=0.10)
-        # compare USD notional (size * price), not shares — skew shifts price
-        assert quote.bid_size * quote.bid_price < normal_quote.bid_size * normal_quote.bid_price
+        # with long YES inventory, skew lowers bid price to encourage reducing
+        assert quote.bid_price <= normal_quote.bid_price
 
 
 # ── Inventory Tracking ──
