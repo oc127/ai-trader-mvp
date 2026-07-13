@@ -514,7 +514,7 @@ class UnifiedPolymarketBot:
                 if copy_size < self._copy_trader.config.min_copy_size_usd:
                     continue
 
-                token_id = trade.get("asset_id", trade.get("tokenId", ""))
+                token_id = trade.get("asset", trade.get("asset_id", trade.get("tokenId", "")))
                 raw_side = trade.get("side", "BUY").upper()
                 side = Side.BUY if raw_side == "BUY" else Side.SELL
                 price = float(trade.get("price", 0.50) or 0.50)

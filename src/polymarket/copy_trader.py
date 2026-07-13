@@ -13,7 +13,7 @@ from src.logger import get_logger
 
 log = get_logger(__name__)
 
-GAMMA_API = "https://gamma-api.polymarket.com"
+DATA_API = "https://data-api.polymarket.com"
 
 
 @dataclass
@@ -92,12 +92,12 @@ class CopyTrader:
         return self._config
 
     def fetch_leaderboard(self) -> list[TraderProfile]:
-        """Fetch top traders from Polymarket leaderboard API."""
+        """Fetch top traders from Polymarket Data API leaderboard."""
         try:
             import requests
             resp = requests.get(
-                f"{GAMMA_API}/leaderboard",
-                params={"limit": 50, "window": "30d"},
+                f"{DATA_API}/v1/leaderboard",
+                params={"timePeriod": "MONTH", "orderBy": "PNL", "limit": 50},
                 timeout=15,
             )
             resp.raise_for_status()
@@ -106,25 +106,13 @@ class CopyTrader:
             traders: list[TraderProfile] = []
             for entry in data if isinstance(data, list) else data.get("results", []):
                 pnl = float(entry.get("pnl", 0) or 0)
-                volume = float(entry.get("volume", 0) or 0)
-                num_trades = int(entry.get("numTrades", 0) or 0)
-                wins = int(entry.get("wins", 0) or 0)
-                losses = int(entry.get("losses", 0) or 0)
-                win_rate = wins / (wins + losses) if (wins + losses) > 0 else 0
-
-                gross_profit = float(entry.get("grossProfit", 0) or 0)
-                gross_loss = abs(float(entry.get("grossLoss", 0) or 0))
-                profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
+                volume = float(entry.get("vol", entry.get("volume", 0)) or 0)
 
                 traders.append(TraderProfile(
-                    address=entry.get("userAddress", entry.get("address", "")),
-                    username=entry.get("username", ""),
+                    address=entry.get("proxyWallet", entry.get("userAddress", "")),
+                    username=entry.get("userName", entry.get("username", "")),
                     pnl=pnl,
                     volume=volume,
-                    win_rate=win_rate,
-                    num_trades=num_trades,
-                    profit_factor=profit_factor,
-                    markets_traded=int(entry.get("marketsTraded", 0) or 0),
                 ))
 
             return traders
@@ -140,29 +128,19 @@ class CopyTrader:
         for t in traders:
             if t.pnl < cfg.min_pnl:
                 continue
-            if t.win_rate < cfg.min_win_rate:
+            if t.win_rate and t.win_rate < cfg.min_win_rate:
                 continue
-            if t.profit_factor < cfg.min_profit_factor:
-                continue
-            if t.num_trades < cfg.min_trades:
+            if t.num_trades and t.num_trades < cfg.min_trades:
                 continue
 
-            # consistency score: how steady are profits vs volume
-            consistency = 0.0
-            if t.volume > 0 and t.num_trades > 0:
-                avg_trade = t.volume / t.num_trades
-                pnl_per_trade = t.pnl / t.num_trades
-                consistency = min(pnl_per_trade / avg_trade, 1.0) if avg_trade > 0 else 0
+            # score from available data: PnL dominates, volume as tiebreaker
+            pnl_score = min(t.pnl / 1000, 10) * 30
+            vol_score = min(t.volume / 100_000, 5) * 10 if t.volume > 0 else 0
+            wr_score = t.win_rate * 30 if t.win_rate else 0
+            efficiency = (t.pnl / t.volume * 100) if t.volume > 0 else 0
+            eff_score = min(efficiency, 5) * 10
 
-            if consistency < cfg.min_consistency * 0.5:
-                continue
-
-            t.score = (
-                t.win_rate * 30
-                + min(t.profit_factor, 5) * 10
-                + min(t.pnl / 1000, 10) * 10
-                + consistency * 50
-            )
+            t.score = pnl_score + vol_score + wr_score + eff_score
             qualified.append(t)
 
         qualified.sort(key=lambda t: t.score, reverse=True)
@@ -172,7 +150,7 @@ class CopyTrader:
             log.info(
                 f"Copy trader: {len(top)} qualified from {len(traders)} "
                 f"(best: {top[0].username or top[0].address[:8]} "
-                f"WR={top[0].win_rate:.0%} PnL=${top[0].pnl:,.0f})"
+                f"PnL=${top[0].pnl:,.0f} vol=${top[0].volume:,.0f})"
             )
 
         return top
@@ -182,24 +160,27 @@ class CopyTrader:
         self._followed = {t.address: t for t in traders}
 
     def fetch_trader_trades(self, address: str) -> list[dict]:
-        """Fetch recent trades for a specific trader."""
+        """Fetch recent trades for a specific trader via Data API."""
         try:
             import requests
             resp = requests.get(
-                f"{GAMMA_API}/trades",
+                f"{DATA_API}/trades",
                 params={"user": address, "limit": 20},
                 timeout=15,
             )
             resp.raise_for_status()
-            return resp.json() if isinstance(resp.json(), list) else []
+            data = resp.json()
+            return data if isinstance(data, list) else []
         except Exception as e:
             log.debug(f"Failed to fetch trades for {address[:8]}: {e}")
             return []
 
     def detect_new_trades(self, address: str, trades: list[dict]) -> list[dict]:
         """Compare with previous snapshot to find new trades."""
-        prev_ids = {t.get("id", t.get("tradeId", "")) for t in self._last_trades.get(address, [])}
-        new = [t for t in trades if t.get("id", t.get("tradeId", "")) not in prev_ids]
+        def _trade_key(t: dict) -> str:
+            return t.get("transactionHash", t.get("id", t.get("tradeId", "")))
+        prev_ids = {_trade_key(t) for t in self._last_trades.get(address, [])}
+        new = [t for t in trades if _trade_key(t) not in prev_ids]
         self._last_trades[address] = trades
         return new
 
