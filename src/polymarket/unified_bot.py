@@ -228,9 +228,10 @@ class UnifiedPolymarketBot:
 
         # Layer 1: market making quotes (fast)
         if self._maker_enabled and not self._maker.is_paused:
+            cycle_balance = self._client.get_balance() if not self._paper_mode else (self._paper.get_balance() if self._paper else 0)
             for market in self._active_markets:
                 try:
-                    self._quote_market(market)
+                    self._quote_market(market, cycle_balance)
                 except Exception as e:
                     log.error(f"Quote failed for {market.question[:40]}: {e}")
                     self._state.errors_today += 1
@@ -580,7 +581,7 @@ class UnifiedPolymarketBot:
             except Exception as e:
                 log.debug(f"LP reward fetch failed: {e}")
 
-    def _quote_market(self, market: Market) -> None:
+    def _quote_market(self, market: Market, balance: float = 0) -> None:
         cid = market.condition_id
         try:
             book = self._client.get_orderbook(market.yes_token_id, market)
@@ -599,7 +600,6 @@ class UnifiedPolymarketBot:
             return
 
         # check available balance before placing (reserve 20% for flatten)
-        balance = self._client.get_balance() if not self._paper_mode else (self._paper.get_balance() if self._paper else 0)
         free_balance = balance - self._committed_usd
         bid_cost = quote.bid_price * quote.bid_size
         ask_cost = (1.0 - quote.ask_price) * quote.ask_size
@@ -651,6 +651,7 @@ class UnifiedPolymarketBot:
                         "price": no_price, "size": quote.ask_size,
                         "cid": cid, "question": market.question,
                         "yes_tid": market.yes_token_id, "no_tid": market.no_token_id,
+                        "cost": ask_cost,
                     }
                 if ask_result.filled_size > 0:
                     self._maker.on_fill(

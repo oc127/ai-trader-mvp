@@ -271,7 +271,8 @@ class HighFreqMarketMaker:
                 size *= 0.5  # halve size when approaching limits
 
         bid_shares = size / bid if bid > 0 else 0
-        ask_shares = size / ask if ask > 0 else 0
+        no_price = 1.0 - ask
+        ask_shares = size / no_price if no_price > 0 else 0
 
         return QuotePair(
             condition_id=cid,
