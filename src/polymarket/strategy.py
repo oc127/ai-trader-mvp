@@ -100,6 +100,7 @@ class MeanReversionStrategy(PMStrategy):
     def __init__(self, cfg: dict) -> None:
         pm_cfg = cfg.get("polymarket", {})
         strat_cfg = pm_cfg.get("strategy", {})
+        self._min_edge = strat_cfg.get("min_edge", 0.05)
         self._reversion_size = strat_cfg.get("reversion_size", 0.08)
         self._vol_liq_threshold = strat_cfg.get("vol_liq_threshold", 2.0)
         self._extreme_low = strat_cfg.get("extreme_low", 0.15)

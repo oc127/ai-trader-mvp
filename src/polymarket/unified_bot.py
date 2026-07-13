@@ -87,7 +87,8 @@ class UnifiedPolymarketBot:
 
         # shared state
         self._state = BotState()
-        self._active_markets: list[Market] = []
+        self._active_markets: list[Market] = []  # filtered for maker
+        self._all_markets: list[Market] = []  # unfiltered for arb/snipe/edge
         self._start_time = 0.0
         self._last_scan_ts = 0.0
         self._last_report_ts = 0.0
@@ -292,7 +293,7 @@ class UnifiedPolymarketBot:
     # ── Slow Cycle (every 30s) — edge detection ──
 
     def _slow_cycle(self) -> None:
-        if not self._active_markets:
+        if not self._active_markets and not self._all_markets:
             return
 
         # feed AI probabilities if analyzer is available
@@ -309,7 +310,8 @@ class UnifiedPolymarketBot:
                 log.error(f"AI analyzer error: {e}")
 
         # evaluate all edge strategies
-        opportunities = self._evaluate_edge(self._active_markets)
+        edge_markets = self._all_markets or self._active_markets
+        opportunities = self._evaluate_edge(edge_markets)
 
         # execute top opportunities
         trades_this_cycle = 0
@@ -436,10 +438,11 @@ class UnifiedPolymarketBot:
     # ── Arbitrage (Layer 3) ──
 
     def _arb_cycle(self) -> None:
-        if not self._active_markets:
+        markets = self._all_markets or self._active_markets
+        if not markets:
             return
 
-        opps = self._arb_engine.scan_all(self._active_markets)
+        opps = self._arb_engine.scan_all(markets)
         if not opps:
             return
 
@@ -552,6 +555,7 @@ class UnifiedPolymarketBot:
                 active=True, limit=200,
                 min_liquidity=self._maker.config.min_market_liquidity,
             )
+            self._all_markets = all_markets
             self._active_markets = self._maker.select_markets(all_markets)
             # sync order state — only cancel orders whose market is no longer selected
             if not self._paper_mode:
