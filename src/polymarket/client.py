@@ -474,6 +474,39 @@ class PolymarketClient:
         log.warning("All balance methods returned 0 — set polymarket.initial_balance in config")
         return 0.0
 
+    def get_token_balance(self, token_id: str) -> float:
+        """Get conditional token balance (shares held) for a specific token."""
+        try:
+            client = self._init_clob()
+            self._throttle()
+            from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
+
+            params = BalanceAllowanceParams(
+                asset_type=AssetType.CONDITIONAL, token_id=token_id,
+            )
+            bal = client.get_balance_allowance(params)
+            if isinstance(bal, dict):
+                raw = float(bal.get("balance", 0) or 0)
+                if raw > 0:
+                    return raw / 1e6
+        except Exception as e:
+            log.debug(f"Token balance query failed: {e}")
+        return 0.0
+
+    def get_trades(self, limit: int = 500) -> list[dict]:
+        """Fetch recent trades to discover positions."""
+        try:
+            client = self._init_clob()
+            self._throttle()
+            from py_clob_client_v2.clob_types import TradeParams
+
+            result = client.get_trades(TradeParams(), only_first_page=True)
+            trades = result if isinstance(result, list) else []
+            return trades[:limit]
+        except Exception as e:
+            log.debug(f"Get trades failed: {e}")
+            return []
+
     def _balance_via_sdk(self) -> float:
         """Try getting balance through the SDK."""
         try:

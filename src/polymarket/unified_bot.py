@@ -98,6 +98,12 @@ class UnifiedPolymarketBot:
         self._known_orders: dict[str, dict] = {}  # order_id -> {token_id, side, price, size, cid}
         self._committed_usd = 0.0  # USDC locked in resting orders
 
+        # position management
+        self._held_positions: dict[str, _HeldPosition] = {}  # token_id -> position
+        self._last_position_scan_ts = 0.0
+        self._position_scan_interval = 300.0  # check every 5 min
+        self._positions_discovered = False
+
         # PnL tracking
         self._maker_pnl = 0.0
         self._edge_pnl = 0.0
@@ -159,6 +165,7 @@ class UnifiedPolymarketBot:
 
         if not self._paper_mode:
             self._client.start_heartbeat()
+            self._discover_positions()
 
         try:
             while not self._state.halted:
@@ -276,6 +283,15 @@ class UnifiedPolymarketBot:
                 log.error(f"Copy cycle error: {e}")
                 self._state.errors_today += 1
             self._last_copy_scan_ts = now
+
+        # Layer 5: position management (runs every 5 min)
+        if not self._paper_mode and now - self._last_position_scan_ts >= self._position_scan_interval:
+            try:
+                self._manage_positions()
+            except Exception as e:
+                log.error(f"Position mgmt error: {e}")
+                self._state.errors_today += 1
+            self._last_position_scan_ts = now
 
         # update equity for risk tracking
         if self._paper_mode and self._paper:
@@ -586,6 +602,145 @@ class UnifiedPolymarketBot:
                         f"Size: ${copy_size:.2f} @ {price:.3f}",
                         alert_type="copy",
                     )
+
+    # ── Position Management (Layer 5) ──
+
+    def _discover_positions(self) -> None:
+        """On startup, discover existing positions via trades history + balance checks."""
+        log.info("Discovering existing positions...")
+        markets = self._all_markets or []
+        if not markets:
+            try:
+                markets = self._client.get_markets(active=True, limit=200, min_liquidity=0)
+                self._all_markets = markets
+            except Exception as e:
+                log.error(f"Market fetch for position discovery failed: {e}")
+                return
+
+        market_by_token: dict[str, tuple[Market, Outcome]] = {}
+        for m in markets:
+            if m.yes_token_id:
+                market_by_token[m.yes_token_id] = (m, Outcome.YES)
+            if m.no_token_id:
+                market_by_token[m.no_token_id] = (m, Outcome.NO)
+
+        token_ids_to_check: set[str] = set()
+        try:
+            trades = self._client.get_trades(limit=500)
+            for t in trades:
+                tid = t.get("asset_id", t.get("token_id", ""))
+                if tid:
+                    token_ids_to_check.add(tid)
+            log.info(f"Found {len(token_ids_to_check)} unique tokens in trade history")
+        except Exception as e:
+            log.debug(f"Trade history fetch failed: {e}")
+
+        for token_id in token_ids_to_check:
+            if token_id in self._held_positions:
+                continue
+            try:
+                shares = self._client.get_token_balance(token_id)
+                if shares >= 1.0:
+                    info = market_by_token.get(token_id)
+                    if info:
+                        market, outcome = info
+                        price = market.yes_price if outcome == Outcome.YES else market.no_price
+                        self._held_positions[token_id] = _HeldPosition(
+                            market=market, outcome=outcome, token_id=token_id,
+                            shares=shares, current_price=price,
+                        )
+                        log.info(
+                            f"  Position: {outcome.value} {market.question[:50]} | "
+                            f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
+                        )
+            except Exception:
+                pass
+
+        total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
+        log.info(f"Discovered {len(self._held_positions)} positions, est. value ${total_value:.2f}")
+        self._positions_discovered = True
+
+    def _manage_positions(self) -> None:
+        """Evaluate held positions — sell when profitable or when cash is needed."""
+        if not self._held_positions:
+            if not self._positions_discovered:
+                self._discover_positions()
+            return
+
+        balance = self._client.get_balance()
+        markets = self._all_markets or []
+        market_by_cid: dict[str, Market] = {m.condition_id: m for m in markets}
+
+        sells_this_cycle = 0
+        for token_id, pos in list(self._held_positions.items()):
+            fresh_market = market_by_cid.get(pos.market.condition_id)
+            if fresh_market:
+                pos.market = fresh_market
+                pos.current_price = (
+                    fresh_market.yes_price if pos.outcome == Outcome.YES
+                    else fresh_market.no_price
+                )
+
+            shares = self._client.get_token_balance(token_id)
+            if shares < 1.0:
+                log.info(f"Position closed: {pos.outcome.value} {pos.market.question[:40]}")
+                del self._held_positions[token_id]
+                continue
+            pos.shares = shares
+
+            action, reason = self._evaluate_position(pos, balance)
+
+            if action == "sell" and sells_this_cycle < 3:
+                sell_price = pos.current_price * 0.99
+                sell_price = max(sell_price, 0.01)
+                log.info(
+                    f"SELL POSITION: {pos.outcome.value} {pos.market.question[:40]} | "
+                    f"{pos.shares:.1f} shares @ {sell_price:.3f} | {reason}"
+                )
+                result = self._place(token_id, Side.SELL, sell_price, pos.shares, pos.market)
+                if result and result.success:
+                    self._alert(
+                        f"SOLD: {pos.outcome.value} {pos.market.question[:40]}\n"
+                        f"{pos.shares:.1f} shares @ {sell_price:.3f} | {reason}",
+                        alert_type="edge",
+                    )
+                    del self._held_positions[token_id]
+                    sells_this_cycle += 1
+            elif action == "hold":
+                log.debug(f"Hold: {pos.outcome.value} {pos.market.question[:40]} | {reason}")
+
+    def _evaluate_position(self, pos: "_HeldPosition", balance: float) -> tuple[str, str]:
+        """Decide whether to hold or sell a position.
+
+        Returns (action, reason) where action is 'hold' or 'sell'.
+        """
+        price = pos.current_price
+
+        # near-certain winner: hold — let it resolve for $1.00
+        if price >= 0.95:
+            return "hold", f"near-certain @ {price:.0%}, wait for resolution"
+
+        # near-certain loser: sell to recover something
+        if price <= 0.05:
+            return "sell", f"near-zero @ {price:.0%}, cut loss"
+
+        # strong position: take profit if price moved well above typical entry
+        if price >= 0.85:
+            return "hold", f"strong @ {price:.0%}, approaching resolution"
+
+        # weak position losing value: sell if price is low and we need cash
+        if price <= 0.15 and balance < 5.0:
+            return "sell", f"weak @ {price:.0%}, freeing cash (bal=${balance:.2f})"
+
+        # moderate position: sell if we're cash-starved
+        if balance < 2.0 and price < 0.80:
+            return "sell", f"need cash (bal=${balance:.2f}), price={price:.0%}"
+
+        # market no longer active
+        if not pos.market.active:
+            return "sell", "market inactive"
+
+        return "hold", f"price={price:.0%}"
 
     # ── Market Making (Layer 1) ──
 
@@ -1025,3 +1180,15 @@ class _EdgePosition:
         self.size = size
         self.edge = edge
         self.entered_at = entered_at
+
+
+class _HeldPosition:
+    __slots__ = ("market", "outcome", "token_id", "shares", "current_price")
+
+    def __init__(self, market: Market, outcome: Outcome, token_id: str,
+                 shares: float, current_price: float):
+        self.market = market
+        self.outcome = outcome
+        self.token_id = token_id
+        self.shares = shares
+        self.current_price = current_price
