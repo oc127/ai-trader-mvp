@@ -385,7 +385,7 @@ class PolymarketClient:
         client = self._init_clob()
         self._throttle()
         try:
-            raw = client.get_orders()
+            raw = client.get_open_orders()
             orders: list[Order] = []
             for o in (raw or []):
                 orders.append(Order(
