@@ -153,7 +153,13 @@ class PolymarketClient:
         import requests
 
         self._throttle()
-        params: dict[str, Any] = {"limit": limit, "active": active}
+        params: dict[str, Any] = {
+            "limit": limit,
+            "active": active,
+            "closed": False,
+            "order": "volume24hr",
+            "ascending": False,
+        }
         resp = requests.get(f"{GAMMA_API}/markets", params=params, timeout=15)
         resp.raise_for_status()
         markets: list[Market] = []

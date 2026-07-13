@@ -563,10 +563,16 @@ class UnifiedPolymarketBot:
                         self._active_quotes.clear()
                 except Exception:
                     pass
+            top3 = ", ".join(
+                f"{m.question[:25]}(v${m.volume_24h:,.0f})"
+                for m in self._active_markets[:3]
+            )
             log.info(
                 f"Scan: {len(all_markets)} total → {len(self._active_markets)} eligible"
                 f" | committed=${self._committed_usd:.1f} | quotes_cached={len(self._active_quotes)}"
             )
+            if top3:
+                log.info(f"  Top markets: {top3}")
         except Exception as e:
             log.error(f"Market scan failed: {e}")
             self._state.errors_today += 1
