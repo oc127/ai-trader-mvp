@@ -386,6 +386,9 @@ class UnifiedPolymarketBot:
         if size <= 0:
             return False
 
+        max_spend = balance * 0.40
+        size = min(size, max_spend)
+
         token_id = opp.market.yes_token_id if opp.outcome == Outcome.YES else opp.market.no_token_id
         price = opp.market_prob
 
@@ -395,8 +398,9 @@ class UnifiedPolymarketBot:
         shares = round(shares, 2)
 
         cost = shares * price
-        if cost > balance * 0.95:
-            log.debug(f"Edge skip: cost=${cost:.2f} > balance=${balance:.2f}")
+        if cost > balance * 0.90:
+            return False
+        if cost < 0.50:
             return False
 
         log.info(
@@ -476,7 +480,7 @@ class UnifiedPolymarketBot:
 
         for opp in opps[:3]:
             if opp.arb_type == "complete_set":
-                usd_size = min(opp.net_profit * 100, self._arb_engine.config.max_arb_size_usd)
+                usd_size = min(opp.net_profit * 100, self._arb_engine.config.max_arb_size_usd, balance * 0.40)
                 if usd_size < 2.0:
                     continue
                 total_cost_per_share = opp.yes_cost + opp.no_cost
@@ -511,7 +515,7 @@ class UnifiedPolymarketBot:
                         alert_type="arb",
                     )
             elif opp.arb_type == "resolution_snipe":
-                usd_size = min(20.0, self._arb_engine.config.max_arb_size_usd)
+                usd_size = min(20.0, self._arb_engine.config.max_arb_size_usd, balance * 0.50)
                 token_id = (
                     opp.market.yes_token_id if opp.snipe_side == "YES"
                     else opp.market.no_token_id
@@ -716,30 +720,36 @@ class UnifiedPolymarketBot:
         Returns (action, reason) where action is 'hold' or 'sell'.
         """
         price = pos.current_price
+        pos_value = pos.shares * price
+        total_held = sum(p.shares * p.current_price for p in self._held_positions.values())
+        cash_ratio = balance / (balance + total_held) if (balance + total_held) > 0 else 1.0
 
-        # near-certain winner: hold — let it resolve for $1.00
+        if not pos.market.active:
+            return "sell", "market inactive"
+
         if price >= 0.95:
             return "hold", f"near-certain @ {price:.0%}, wait for resolution"
 
-        # near-certain loser: sell to recover something
         if price <= 0.05:
             return "sell", f"near-zero @ {price:.0%}, cut loss"
 
-        # strong position: take profit if price moved well above typical entry
         if price >= 0.85:
             return "hold", f"strong @ {price:.0%}, approaching resolution"
 
-        # weak position losing value: sell if price is low and we need cash
-        if price <= 0.15 and balance < 5.0:
-            return "sell", f"weak @ {price:.0%}, freeing cash (bal=${balance:.2f})"
+        # cash is less than 10% of portfolio — sell weakest positions
+        if cash_ratio < 0.10:
+            if price < 0.50:
+                return "sell", f"low cash ({cash_ratio:.0%}), freeing ${pos_value:.2f}"
+            if price < 0.70:
+                return "sell", f"low cash ({cash_ratio:.0%}), trimming ${pos_value:.2f}"
 
-        # moderate position: sell if we're cash-starved
-        if balance < 2.0 and price < 0.80:
-            return "sell", f"need cash (bal=${balance:.2f}), price={price:.0%}"
+        # cash under $5 — sell moderate positions
+        if balance < 5.0 and price < 0.60:
+            return "sell", f"need cash (bal=${balance:.2f})"
 
-        # market no longer active
-        if not pos.market.active:
-            return "sell", "market inactive"
+        # position too large relative to portfolio — trim
+        if total_held > 0 and pos_value / total_held > 0.30 and price < 0.70:
+            return "sell", f"concentrated ({pos_value/total_held:.0%} of portfolio)"
 
         return "hold", f"price={price:.0%}"
 
@@ -836,16 +846,25 @@ class UnifiedPolymarketBot:
             if not bid_moved and not ask_moved:
                 return
 
-        # check available balance before placing (reserve 10% for flatten)
         free_balance = balance - self._committed_usd
+        reserve = balance * 0.10
+        available = max(free_balance - reserve, 0)
+
         bid_cost = quote.bid_price * quote.bid_size
         ask_cost = (1.0 - quote.ask_price) * quote.ask_size
         total_cost = bid_cost + ask_cost
-        reserve = balance * 0.10  # keep 10% for flatten/emergencies
 
-        if free_balance - total_cost < reserve:
+        if total_cost > available and available >= 1.0:
+            scale = available / total_cost
+            quote.bid_size = max(round(quote.bid_size * scale, 2), 5.0)
+            quote.ask_size = max(round(quote.ask_size * scale, 2), 5.0)
+            bid_cost = quote.bid_price * quote.bid_size
+            ask_cost = (1.0 - quote.ask_price) * quote.ask_size
+            total_cost = bid_cost + ask_cost
+
+        if total_cost > available or available < 1.0:
             if self._state.cycle_count % 30 == 1:
-                log.info(f"Skip quote {market.question[:30]}: free=${free_balance:.1f} need=${total_cost:.1f} reserve=${reserve:.1f}")
+                log.info(f"Skip quote {market.question[:30]}: avail=${available:.1f} need=${total_cost:.1f}")
             return
 
         # cancel old orders for this market before placing new ones
@@ -1091,6 +1110,8 @@ class UnifiedPolymarketBot:
             bal = self._client.get_balance()
             prices = self._get_current_prices()
             position_value = self._maker.estimate_position_value(prices)
+            held_value = sum(p.shares * p.current_price for p in self._held_positions.values())
+            position_value += held_value
             equity = bal + position_value
         total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
 
@@ -1100,7 +1121,7 @@ class UnifiedPolymarketBot:
         log.info(f"STATUS REPORT (uptime {uptime:.1f}h)")
         log.info(f"  Mode:        {'PAPER' if self._paper_mode else 'LIVE'}")
         log.info(f"  Cash:        ${bal:.2f}")
-        log.info(f"  Positions:   ${position_value:.2f}")
+        log.info(f"  Positions:   ${position_value:.2f} ({len(self._held_positions)} held)")
         log.info(f"  Portfolio:   ${equity:.2f}")
         log.info(f"  Total PnL:   ${total_pnl:+.4f}")
         log.info(f"    Maker PnL: ${self._maker_pnl:+.4f}")
