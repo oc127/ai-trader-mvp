@@ -586,10 +586,19 @@ class UnifiedPolymarketBot:
         try:
             book = self._client.get_orderbook(market.yes_token_id, market)
             book_spread = book.spread
+            best_bid = book.bids[0][0] if book.bids else 0.0
+            best_ask = book.asks[0][0] if book.asks else 0.0
+            book_mid = book.mid_price
         except Exception:
             book_spread = 0.10
+            best_bid = 0.0
+            best_ask = 0.0
+            book_mid = 0.0
 
-        quote = self._maker.generate_quotes(market, book_spread)
+        quote = self._maker.generate_quotes(
+            market, book_spread,
+            best_bid=best_bid, best_ask=best_ask, book_mid=book_mid,
+        )
         if not quote:
             if self._state.cycle_count <= 3:
                 log.info(f"No quote: {market.question[:40]} (paused or at limit)")
@@ -824,14 +833,23 @@ class UnifiedPolymarketBot:
         risk_status = self._risk.status()
         uptime = (time.monotonic() - self._start_time) / 3600
         bal = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
-        equity = self._paper.get_equity() if self._paper_mode and self._paper else self._client.get_balance()
         total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
+
+        # portfolio value = cash + estimated position values
+        prices = self._get_current_prices()
+        position_value = self._maker.estimate_position_value(prices)
+        equity = bal + position_value
+        if self._paper_mode and self._paper:
+            equity = self._paper.get_equity()
+
+        fill_bal = maker_status.get('fill_balance', '0/0')
 
         log.info("─" * 55)
         log.info(f"STATUS REPORT (uptime {uptime:.1f}h)")
         log.info(f"  Mode:        {'PAPER' if self._paper_mode else 'LIVE'}")
-        log.info(f"  Balance:     ${bal:.2f}")
-        log.info(f"  Equity:      ${equity:.2f}")
+        log.info(f"  Cash:        ${bal:.2f}")
+        log.info(f"  Positions:   ${position_value:.2f}")
+        log.info(f"  Portfolio:   ${equity:.2f}")
         log.info(f"  Total PnL:   ${total_pnl:+.4f}")
         log.info(f"    Maker PnL: ${self._maker_pnl:+.4f}")
         log.info(f"    Edge PnL:  ${self._edge_pnl:+.4f}")
@@ -841,6 +859,7 @@ class UnifiedPolymarketBot:
         mk_trades = maker_status['total_trades']
         mk_wr = maker_status['win_rate']
         log.info(f"  Maker:       {maker_status['active_markets']} mkts, {mk_trades} trades ({mk_wr:.0%})")
+        log.info(f"  Fills:       {fill_bal} (bid/ask)")
         log.info(f"  Edge:        {len(self._edge_positions)} open positions")
         dd = risk_status['drawdown_pct']
         sm = risk_status['size_multiplier']
@@ -850,10 +869,10 @@ class UnifiedPolymarketBot:
         log.info("─" * 55)
 
         self._alert(
-            f"Status ({uptime:.1f}h)\n"
+            f"Status ({uptime:.1f}h) Portfolio: ${equity:.2f}\n"
             f"Total PnL: ${total_pnl:+.4f} (maker=${self._maker_pnl:+.4f} edge=${self._edge_pnl:+.4f} "
             f"arb=${self._arb_pnl:+.4f} copy=${self._copy_pnl:+.4f})\n"
-            f"Maker: {mk_trades} trades | Edge: {len(self._edge_positions)} pos | "
+            f"Fills: {fill_bal} | Maker: {mk_trades} trades | Edge: {len(self._edge_positions)} pos | "
             f"Arb: {arb_status['arb_count']}+{arb_status['snipe_count']} | Copy: {copy_status['copy_count']}",
             alert_type="report",
         )

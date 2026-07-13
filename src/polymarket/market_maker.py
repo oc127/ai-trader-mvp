@@ -139,6 +139,8 @@ class HighFreqMarketMaker:
         self._paused_until: float = 0.0
         self._total_trades: int = 0
         self._winning_trades: int = 0
+        self._bid_fills: int = 0
+        self._ask_fills: int = 0
         self._reward_bands: dict[str, float] = {}
 
     def set_reward_bands(self, bands: dict[str, float]) -> None:
@@ -208,27 +210,28 @@ class HighFreqMarketMaker:
         eligible.sort(key=_score, reverse=True)
         return eligible[: self._config.max_markets]
 
-    def generate_quotes(self, market, book_spread: float) -> Optional[QuotePair]:
+    def generate_quotes(self, market, book_spread: float,
+                        best_bid: float = 0.0, best_ask: float = 0.0,
+                        book_mid: float = 0.0) -> Optional[QuotePair]:
         """Generate a bid/ask quote pair for a market.
 
-        Places resting limit orders at min_half_spread distance from mid.
-        On tight markets, these sit behind the best bid/ask and fill on
-        volatility sweeps — this is intentional for small accounts.
+        Uses actual order book best bid/ask for competitive pricing.
+        Places bids at or just inside the spread to maximize fill rate
+        on both sides — both must fill for spread profit.
         """
         if self.is_paused:
             return None
 
-        mid = market.yes_price
         cid = market.condition_id
 
-        # get or create inventory
+        # use order book mid when available (more accurate than market.yes_price)
+        mid = book_mid if book_mid > 0 else market.yes_price
+
         inv = self._inventory.get(cid)
 
-        # check position limit
         if inv and inv.abs_exposure >= self._config.max_position_per_market:
             return None
 
-        # check total exposure
         if self.total_exposure >= self._config.max_total_exposure:
             return None
 
@@ -248,32 +251,47 @@ class HighFreqMarketMaker:
         # inventory skew: shift mid away from our inventory to encourage reducing it
         skew = 0.0
         if inv and not inv.is_flat:
-            # positive net_exposure = long YES → lower bid, raise ask → encourage selling YES
-            imbalance = inv.net_exposure / 10.0  # normalize to $10 units
+            imbalance = inv.net_exposure / 10.0
             skew = imbalance * self._config.skew_factor
 
-        adjusted_mid = mid - skew
-        bid = round(adjusted_mid - half_spread, 4)
-        ask = round(adjusted_mid + half_spread, 4)
+        # bid-side aggression: when ask fills outpace bids, tighten the bid
+        bid_aggression = 0.0
+        total_fills = self._bid_fills + self._ask_fills
+        if total_fills >= 4:
+            bid_ratio = self._bid_fills / total_fills
+            if bid_ratio < 0.35:
+                bid_aggression = half_spread * 0.4
 
-        # clamp to valid range
+        adjusted_mid = mid - skew
+
+        # competitive pricing: use order book levels when available
+        if best_bid > 0 and best_ask > 0 and best_ask > best_bid:
+            # place bid at best_bid + 1 tick to get queue priority
+            bid = round(max(best_bid + 0.001, adjusted_mid - half_spread + bid_aggression), 4)
+            # don't exceed the book mid — we still need spread profit
+            bid = min(bid, round(adjusted_mid - self._config.min_half_spread * 0.5, 4))
+            ask = round(min(best_ask - 0.001, adjusted_mid + half_spread), 4)
+        else:
+            bid = round(adjusted_mid - half_spread + bid_aggression, 4)
+            ask = round(adjusted_mid + half_spread, 4)
+
         bid = max(0.01, min(bid, 0.98))
         ask = max(0.02, min(ask, 0.99))
 
         if ask <= bid:
             return None
 
-        # size: reduce if inventory is building up
         size = self._config.quote_size_usd
         if inv:
             utilization = inv.abs_exposure / self._config.max_position_per_market
             if utilization > self._config.flatten_at_pct:
-                size *= 0.5  # halve size when approaching limits
+                size *= 0.5
 
         bid_shares = size / bid if bid > 0 else 0
         no_price = 1.0 - ask
         ask_shares = size / no_price if no_price > 0 else 0
 
+        agg_str = f" agg={bid_aggression:+.3f}" if bid_aggression else ""
         return QuotePair(
             condition_id=cid,
             yes_token_id=market.yes_token_id,
@@ -283,7 +301,7 @@ class HighFreqMarketMaker:
             bid_size=round(bid_shares, 2),
             ask_size=round(ask_shares, 2),
             spread=round(ask - bid, 4),
-            reason=f"mid={mid:.2f} skew={skew:+.3f} hs={half_spread:.3f}{' LP' if reward_half else ''}",
+            reason=f"mid={mid:.2f} skew={skew:+.3f} hs={half_spread:.3f}{' LP' if reward_half else ''}{agg_str}",
         )
 
     def on_fill(self, condition_id: str, question: str, yes_tid: str, no_tid: str,
@@ -303,6 +321,12 @@ class HighFreqMarketMaker:
         self._total_trades += 1
 
         is_yes = (token_id == yes_tid)
+
+        if side == "BUY":
+            if is_yes:
+                self._bid_fills += 1
+            else:
+                self._ask_fills += 1
 
         if side == "BUY":
             if is_yes:
@@ -411,8 +435,22 @@ class HighFreqMarketMaker:
             }
         return None
 
+    def estimate_position_value(self, prices: dict[str, float] | None = None) -> float:
+        """Estimate current value of all positions using YES prices."""
+        total = 0.0
+        for inv in self._inventory.values():
+            yes_px = prices.get(inv.condition_id, 0.5) if prices else 0.5
+            no_px = 1.0 - yes_px
+            total += inv.yes_shares * yes_px + inv.no_shares * no_px
+        return total
+
     def status(self) -> dict:
         active = [inv for inv in self._inventory.values() if not inv.is_flat]
+        total_fills = self._bid_fills + self._ask_fills
+        fill_balance = (
+            f"{self._bid_fills}B/{self._ask_fills}A"
+            if total_fills > 0 else "0/0"
+        )
         return {
             "daily_pnl": round(self._daily_pnl, 4),
             "total_exposure": round(self.total_exposure, 2),
@@ -421,6 +459,9 @@ class HighFreqMarketMaker:
             "win_rate": round(self._winning_trades / self._total_trades, 4) if self._total_trades > 0 else 0,
             "consecutive_losses": self._consecutive_losses,
             "is_paused": self.is_paused,
+            "fill_balance": fill_balance,
+            "bid_fills": self._bid_fills,
+            "ask_fills": self._ask_fills,
             "positions": [
                 {
                     "market": inv.question[:40],
