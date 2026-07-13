@@ -93,6 +93,8 @@ class UnifiedPolymarketBot:
         self._last_report_ts = 0.0
         self._last_slow_ts = 0.0
         self._last_reset_day = ""
+        self._last_fill_check_ts = 0.0
+        self._known_orders: dict[str, dict] = {}  # order_id -> {token_id, side, price, size, cid}
 
         # PnL tracking
         self._maker_pnl = 0.0
@@ -230,6 +232,15 @@ class UnifiedPolymarketBot:
                     self._state.errors_today += 1
 
             self._flatten_stale()
+            self._merge_positions()
+
+        # Check for deferred fills on resting orders (every 10s)
+        if not self._paper_mode and now - self._last_fill_check_ts >= 10:
+            try:
+                self._check_maker_fills()
+            except Exception as e:
+                log.debug(f"Fill check error: {e}")
+            self._last_fill_check_ts = now
 
         # Layer 2: edge detection (slow — only every slow_interval)
         if self._edge_enabled and now - self._last_slow_ts >= self._slow_interval:
@@ -561,34 +572,55 @@ class UnifiedPolymarketBot:
             return
 
         prev = self._active_quotes.get(cid)
-        if prev and abs(quote.bid_price - prev.bid_price) < 0.005 and abs(quote.ask_price - prev.ask_price) < 0.005:
+        if prev and abs(quote.bid_price - prev.bid_price) < 0.002 and abs(quote.ask_price - prev.ask_price) < 0.002:
             return
+
+        log.info(
+            f"QUOTE: {market.question[:40]} | bid={quote.bid_price:.3f} ask={quote.ask_price:.3f} "
+            f"spread={quote.spread:.4f} | {quote.reason}"
+        )
 
         bid_result = self._place(
             quote.yes_token_id, Side.BUY, quote.bid_price, quote.bid_size, market,
         )
-        if bid_result and bid_result.filled_size > 0:
-            self._maker.on_fill(
-                cid, market.question, market.yes_token_id, market.no_token_id,
-                "BUY", market.yes_token_id, quote.bid_price, bid_result.filled_size,
-            )
-            self._state.trades_today += 1
-            self._maker_pnl = self._maker.daily_pnl
-            self._alert(f"MAKER BID: {market.question[:40]} @ {quote.bid_price:.3f}", alert_type="trade")
+        if bid_result and bid_result.success:
+            if bid_result.order_id:
+                self._known_orders[bid_result.order_id] = {
+                    "token_id": quote.yes_token_id, "side": "BUY",
+                    "price": quote.bid_price, "size": quote.bid_size,
+                    "cid": cid, "question": market.question,
+                    "yes_tid": market.yes_token_id, "no_tid": market.no_token_id,
+                }
+            if bid_result.filled_size > 0:
+                self._maker.on_fill(
+                    cid, market.question, market.yes_token_id, market.no_token_id,
+                    "BUY", market.yes_token_id, quote.bid_price, bid_result.filled_size,
+                )
+                self._state.trades_today += 1
+                self._maker_pnl = self._maker.daily_pnl
+                self._alert(f"MAKER BID: {market.question[:40]} @ {quote.bid_price:.3f}", alert_type="trade")
 
         no_price = 1.0 - quote.ask_price
         if no_price > 0.01:
             ask_result = self._place(
                 quote.no_token_id, Side.BUY, no_price, quote.ask_size, market,
             )
-            if ask_result and ask_result.filled_size > 0:
-                self._maker.on_fill(
-                    cid, market.question, market.yes_token_id, market.no_token_id,
-                    "BUY", market.no_token_id, no_price, ask_result.filled_size,
-                )
-                self._state.trades_today += 1
-                self._maker_pnl = self._maker.daily_pnl
-                self._alert(f"MAKER ASK: {market.question[:40]} @ {no_price:.3f}", alert_type="trade")
+            if ask_result and ask_result.success:
+                if ask_result.order_id:
+                    self._known_orders[ask_result.order_id] = {
+                        "token_id": quote.no_token_id, "side": "BUY",
+                        "price": no_price, "size": quote.ask_size,
+                        "cid": cid, "question": market.question,
+                        "yes_tid": market.yes_token_id, "no_tid": market.no_token_id,
+                    }
+                if ask_result.filled_size > 0:
+                    self._maker.on_fill(
+                        cid, market.question, market.yes_token_id, market.no_token_id,
+                        "BUY", market.no_token_id, no_price, ask_result.filled_size,
+                    )
+                    self._state.trades_today += 1
+                    self._maker_pnl = self._maker.daily_pnl
+                    self._alert(f"MAKER ASK: {market.question[:40]} @ {no_price:.3f}", alert_type="trade")
 
         self._active_quotes[cid] = quote
 
@@ -624,6 +656,55 @@ class UnifiedPolymarketBot:
                         inv.no_token_id, "SELL", order["token_id"],
                         0, result.filled_size,
                     )
+
+    def _merge_positions(self) -> None:
+        """Merge YES+NO positions back to USDC to free capital."""
+        for inv, merge_size in self._maker.get_mergeable_positions():
+            if self._paper_mode and self._paper:
+                self._paper.add_balance(merge_size)
+            self._maker.record_merge(inv.condition_id, merge_size)
+            log.info(
+                f"MERGE: {inv.question[:40]} — {merge_size:.1f} shares → ${merge_size:.2f} freed"
+            )
+
+    def _check_maker_fills(self) -> None:
+        """Poll open orders for deferred fills on resting GTC orders."""
+        if not self._known_orders:
+            return
+
+        try:
+            open_orders = self._client.get_open_orders()
+        except Exception:
+            return
+
+        open_ids = {o.order_id for o in open_orders}
+
+        filled_ids = []
+        for oid, info in list(self._known_orders.items()):
+            if oid not in open_ids:
+                self._maker.on_fill(
+                    info["cid"], info["question"], info["yes_tid"], info["no_tid"],
+                    info["side"], info["token_id"], info["price"], info["size"],
+                )
+                self._state.trades_today += 1
+                self._maker_pnl = self._maker.daily_pnl
+                log.info(
+                    f"FILL DETECTED: {info['side']} {info['question'][:40]} "
+                    f"@ {info['price']:.3f} size={info['size']:.1f}"
+                )
+                self._alert(
+                    f"MAKER FILL: {info['question'][:40]} @ {info['price']:.3f}",
+                    alert_type="trade",
+                )
+                filled_ids.append(oid)
+
+        for oid in filled_ids:
+            del self._known_orders[oid]
+
+        if len(self._known_orders) > 100:
+            oldest = sorted(self._known_orders.keys())[:50]
+            for oid in oldest:
+                del self._known_orders[oid]
 
     # ── Shared ──
 

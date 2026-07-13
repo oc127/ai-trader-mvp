@@ -183,15 +183,27 @@ class HighFreqMarketMaker:
                 continue
             eligible.append(m)
 
-        # Rank by moderate liquidity sweet spot: prefer markets that are liquid
-        # enough to fill but not so liquid that spreads are sub-penny.
-        # Score peaks around $50K-$200K liquidity range.
         def _score(m):
             liq = m.liquidity
             sweet_spot = 100_000
             liq_score = 1.0 / (1.0 + abs(liq - sweet_spot) / sweet_spot)
             vol_score = min(m.volume_24h / 10_000, 2.0)
-            return liq_score * vol_score
+            base = liq_score * vol_score
+
+            # boost LP-reward-eligible markets (2x priority)
+            has_reward = (
+                self._reward_bands.get(getattr(m, "yes_token_id", ""), 0) > 0
+                or self._reward_bands.get(getattr(m, "no_token_id", ""), 0) > 0
+            )
+            if has_reward:
+                base *= 2.0
+
+            # boost sports/World Cup markets (elevated reward pools)
+            q = getattr(m, "question", "").lower()
+            if any(kw in q for kw in ("world cup", "fifa", "match", "goal", "soccer", "football")):
+                base *= 1.5
+
+            return base
 
         eligible.sort(key=_score, reverse=True)
         return eligible[: self._config.max_markets]
@@ -226,7 +238,7 @@ class HighFreqMarketMaker:
         no_band = self._reward_bands.get(market.no_token_id, 0)
         if yes_band > 0 or no_band > 0:
             band = max(yes_band, no_band)
-            reward_half = band * 0.5
+            reward_half = band * 0.4
 
         half_spread = max(self._config.min_half_spread, book_spread * 0.4)
         if reward_half and reward_half > self._config.min_half_spread:
@@ -335,6 +347,24 @@ class HighFreqMarketMaker:
                 f"Pausing {self._config.pause_after_loss_seconds}s after "
                 f"{self._consecutive_losses} consecutive losses"
             )
+
+    def get_mergeable_positions(self) -> list[tuple[MarketInventory, float]]:
+        """Find positions where we hold both YES and NO — merge to free capital."""
+        mergeable = []
+        for inv in self._inventory.values():
+            merge_size = min(inv.yes_shares, inv.no_shares)
+            if merge_size >= 1.0:
+                mergeable.append((inv, merge_size))
+        return mergeable
+
+    def record_merge(self, condition_id: str, size: float) -> None:
+        """Record a merge of YES+NO shares back to USDC."""
+        inv = self._inventory.get(condition_id)
+        if not inv:
+            return
+        merge = min(size, inv.yes_shares, inv.no_shares)
+        inv.yes_shares -= merge
+        inv.no_shares -= merge
 
     def get_stale_positions(self) -> list[MarketInventory]:
         """Get positions that have been held too long and need flattening."""

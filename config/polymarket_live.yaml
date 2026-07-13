@@ -16,115 +16,115 @@ polymarket:
   signature_type: 3  # POLY_1271 — Deposit Wallet (EIP-1271 smart contract wallet)
 
   # Rate limiting
-  rate_limit_delay: 0.25  # slightly more conservative than paper
+  rate_limit_delay: 0.15  # faster API calls for HFT throughput
 
   # ── HFT Market Maker (Layer 1) ──
   hf_market_maker:
-    # Spread — wider in live to protect against adverse selection
-    min_half_spread: 0.01       # 1 cent minimum half-spread
-    max_half_spread: 0.06       # widen up to 6 cents under stress
+    # Spread — tight for HFT fill rate + LP Q-score
+    min_half_spread: 0.005      # 0.5 cent — tight for max fills & LP rewards
+    max_half_spread: 0.03       # cap at 3 cents (tighter = better Q-score)
 
     # Inventory skew
     skew_factor: 0.015          # stronger skew to reduce directional risk
 
-    # Sizing — START SMALL, scale up after profitable days
-    quote_size_usd: 15.0        # $15 per side
-    max_position_per_market: 75.0   # $75 max per market
-    max_total_exposure: 300.0       # $300 total across all markets
+    # Sizing — small per-trade, high volume (HFT style)
+    quote_size_usd: 10.0        # $10 per side — smaller = more trades, less risk
+    max_position_per_market: 50.0   # $50 max per market (tighter for HFT)
+    max_total_exposure: 200.0       # $200 total — conservative for $150 account
 
-    # Market selection — find markets with quotable spreads
-    min_market_liquidity: 5000      # $5K minimum (wider spreads here)
-    min_market_volume_24h: 1000     # $1K 24h volume minimum
+    # Market selection — cast wide net for LP rewards
+    min_market_liquidity: 3000      # $3K minimum — wider net for more markets
+    min_market_volume_24h: 500      # $500 24h volume — include quieter markets
     min_book_spread: 0.0            # disabled — place resting orders regardless
-    price_band_low: 0.15            # avoid extremes
-    price_band_high: 0.85
-    max_markets: 8                  # more markets = more LP rewards
+    price_band_low: 0.10            # wider band = more markets eligible
+    price_band_high: 0.90
+    max_markets: 12                 # max LP reward coverage
 
-    # Inventory management — aggressive flatten
-    max_inventory_age_seconds: 180  # flatten after 3 minutes (not 5)
-    flatten_at_pct: 0.70            # flatten at 70% of max (not 80%)
+    # Inventory management — ultra-fast flatten for HFT
+    max_inventory_age_seconds: 90   # flatten after 90s — never hold risk
+    flatten_at_pct: 0.50            # start reducing at 50% — early de-risk
 
-    # Risk — tight stops
-    max_daily_loss: 40.0            # stop at $40 loss
-    max_consecutive_losses: 3       # pause after 3 consecutive losses
-    pause_after_loss_seconds: 300   # 5 min cooldown (longer than paper)
+    # Risk — fast recovery HFT style
+    max_daily_loss: 30.0            # stop at $30 loss (20% of account)
+    max_consecutive_losses: 4       # pause after 4 consecutive losses
+    pause_after_loss_seconds: 120   # 2 min cooldown — get back in fast
 
-  # ── Cycle timing ──
-  cycle_interval_seconds: 5        # 5-second fast cycles
-  scan_interval_seconds: 120       # rescan markets every 2 minutes
-  report_interval_seconds: 300     # status report every 5 minutes
+  # ── Cycle timing — HFT speed ──
+  cycle_interval_seconds: 2        # 2-second cycles — max throughput
+  scan_interval_seconds: 60        # rescan markets every 60s
+  report_interval_seconds: 180     # status report every 3 minutes
 
   # ── Layer toggles ──
   maker_enabled: true
   edge_enabled: true
   copy_enabled: true
 
-  # ── Scanner (for edge detection) ──
+  # ── Scanner (for edge detection — wider net) ──
   scanner:
-    min_edge: 0.07              # 7% minimum edge (stricter)
-    min_volume: 20000
-    min_liquidity: 10000
-    max_price: 0.85
-    min_price: 0.15
-    market_limit: 100
+    min_edge: 0.05              # 5% minimum edge — more opportunities
+    min_volume: 5000            # lower volume threshold
+    min_liquidity: 5000         # lower liquidity threshold
+    max_price: 0.90             # wider price range
+    min_price: 0.10
+    market_limit: 150           # scan more markets
 
-  # ── Strategy (edge layer) ──
+  # ── Strategy (edge layer — faster response) ──
   strategy:
-    min_edge: 0.07
-    reversion_size: 0.06        # smaller mean reversion adjustment
-    vol_liq_threshold: 2.0
+    min_edge: 0.05              # 5% — match scanner
+    reversion_size: 0.04        # smaller reversion for quicker trades
+    vol_liq_threshold: 1.5      # lower threshold = more signals
 
   # ── Risk management (4-layer circuit breakers + dynamic sizing) ──
   risk:
-    max_position_usd: 200
-    max_total_exposure_usd: 500
-    max_single_market_pct: 0.15   # 15% max in one market
-    max_daily_trades: 30
-    max_daily_loss_usd: 100
-    min_kelly: 0.02
-    max_kelly: 0.05               # very conservative Kelly cap
-    min_edge: 0.07
+    max_position_usd: 100         # $100 max single position
+    max_total_exposure_usd: 300   # $300 total (2x account)
+    max_single_market_pct: 0.12   # 12% max in one market — spread risk
+    max_daily_trades: 200         # HFT: many small trades
+    max_daily_loss_usd: 30        # $30 daily stop (20% of account)
+    min_kelly: 0.01               # lower floor for more trades
+    max_kelly: 0.04               # conservative Kelly cap
+    min_edge: 0.05                # 5% min edge — catch more opps
     min_confidence: "medium"
     max_errors_before_halt: 5     # halt faster on errors
-    # multi-layer circuit breakers (conservative for live)
-    max_monthly_loss_usd: 300     # L2: $300 monthly cap
+    # multi-layer circuit breakers
+    max_monthly_loss_usd: 100     # L2: $100 monthly cap
     max_drawdown_pct: 0.15        # L3: 15% max drawdown
-    max_total_loss_pct: 0.30      # L4: 30% lifetime halt
-    # dynamic sizing
-    loss_shrink_pct: 0.25         # shrink faster in live
-    win_grow_pct: 0.05            # grow slower in live
-    max_streak_adjustment: 0.40   # more aggressive floor
+    max_total_loss_pct: 0.25      # L4: 25% lifetime halt
+    # dynamic sizing — HFT adaptive
+    loss_shrink_pct: 0.30         # shrink 30% on loss streak
+    win_grow_pct: 0.10            # grow 10% on wins — compound faster
+    max_streak_adjustment: 0.50   # floor at 50% of base size
 
-  # ── Arbitrage (conservative for live) ──
+  # ── Arbitrage (HFT — grab small arbs fast) ──
   arbitrage:
-    min_net_profit: 0.01          # $0.01 minimum (higher than paper)
-    min_roi_pct: 0.5              # 0.5% minimum ROI
-    max_arb_size_usd: 50.0        # max per arb trade
-    min_liquidity: 10000          # higher liquidity requirement
-    min_volume: 5000
-    snipe_min_price: 0.96         # stricter snipe threshold
+    min_net_profit: 0.005         # $0.005 — even tiny arbs add up
+    min_roi_pct: 0.3              # 0.3% minimum ROI
+    max_arb_size_usd: 30.0        # $30 max per arb (smaller, faster)
+    min_liquidity: 5000           # lower liquidity for more markets
+    min_volume: 2000              # catch quieter markets
+    snipe_min_price: 0.95         # slightly wider snipe range
     snipe_max_price: 0.995
 
-  # ── Copy Trading (conservative for live) ──
+  # ── Copy Trading (fast-follow HFT) ──
   copy_trading:
-    min_pnl: 1000.0               # higher PnL requirement
-    min_win_rate: 0.65            # stricter win rate
-    min_profit_factor: 2.0        # higher profit factor
-    min_trades: 50                # more history required
-    max_traders_to_follow: 5      # fewer traders
-    copy_size_pct: 0.05           # 5% of their size (half of paper)
-    max_copy_size_usd: 15.0       # smaller max
+    min_pnl: 500.0                # lower bar — follow more profitable traders
+    min_win_rate: 0.60            # 60% win rate minimum
+    min_profit_factor: 1.5        # reasonable profit factor
+    min_trades: 30                # less history needed
+    max_traders_to_follow: 8      # follow more traders for volume
+    copy_size_pct: 0.03           # 3% of their size — tiny per trade
+    max_copy_size_usd: 10.0       # $10 max per copy
     min_copy_size_usd: 2.0
-    scan_interval: 180.0          # check every 3 min
-    trade_delay: 10.0             # longer delay
-    cooldown_per_trader: 600.0    # 10 min cooldown
+    scan_interval: 60.0           # check every 60s — catch trades fast
+    trade_delay: 5.0              # 5s delay — faster follow
+    cooldown_per_trader: 300.0    # 5 min cooldown
 
-# Smart bot settings (edge layer)
+# Smart bot settings (edge layer — faster cycles)
 smart_bot:
-  cycle_interval_seconds: 30
-  scan_interval_seconds: 300
-  max_trades_per_cycle: 1         # 1 trade per cycle in live
-  position_timeout_seconds: 1800  # 30 min timeout (shorter)
+  cycle_interval_seconds: 15      # 15s cycles — faster edge detection
+  scan_interval_seconds: 120      # rescan every 2 min
+  max_trades_per_cycle: 2         # 2 trades per cycle for throughput
+  position_timeout_seconds: 900   # 15 min timeout — don't hold long
   stop_loss_multiplier: 1.5       # tighter stop loss
 
 # AI edge (optional, requires LLM API key)

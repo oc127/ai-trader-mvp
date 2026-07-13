@@ -160,6 +160,9 @@ class PaperExecutor:
     def get_balance(self) -> float:
         return self._account.balance
 
+    def add_balance(self, amount: float) -> None:
+        self._account.balance += amount
+
     def get_equity(self) -> float:
         return self._account.equity
 
