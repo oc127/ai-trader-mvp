@@ -487,8 +487,8 @@ class PolymarketClient:
             if isinstance(bal, dict):
                 raw = float(bal.get("balance", 0) or 0)
                 if raw > 0:
-                    amount = raw / 1e6 if raw > 1_000_000 else raw
-                    log.info(f"SDK balance: ${amount:.2f}")
+                    amount = raw / 1e6
+                    log.info(f"SDK balance: ${amount:.2f} (raw={raw:.0f})")
                     return amount
         except Exception as e:
             log.debug(f"SDK balance failed: {e}")

@@ -378,6 +378,11 @@ class UnifiedPolymarketBot:
         shares = max(size / price, 5.0)
         shares = round(shares, 2)
 
+        cost = shares * price
+        if cost > balance * 0.95:
+            log.debug(f"Edge skip: cost=${cost:.2f} > balance=${balance:.2f}")
+            return False
+
         log.info(
             f"EDGE TRADE: {opp.outcome.value} {opp.market.question[:50]} | "
             f"price={price:.3f} size=${size:.2f} shares={shares:.2f} edge={opp.edge:.1%}"
@@ -451,6 +456,8 @@ class UnifiedPolymarketBot:
         if not opps:
             return
 
+        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+
         for opp in opps[:3]:
             if opp.arb_type == "complete_set":
                 usd_size = min(opp.net_profit * 100, self._arb_engine.config.max_arb_size_usd)
@@ -461,6 +468,10 @@ class UnifiedPolymarketBot:
                     continue
                 shares = max(usd_size / total_cost_per_share, 5.0)
                 shares = round(shares, 2)
+                cost = shares * total_cost_per_share
+                if cost > balance * 0.95:
+                    log.debug(f"Arb skip: cost=${cost:.2f} > balance=${balance:.2f}")
+                    continue
                 log.info(
                     f"ARB: {opp.market.question[:40]} | cost={opp.total_cost:.3f} "
                     f"shares={shares:.2f} net=${opp.net_profit:.4f} roi={opp.roi_pct:.2f}%"
@@ -494,6 +505,10 @@ class UnifiedPolymarketBot:
                     continue
                 shares = max(usd_size / price, 5.0)
                 shares = round(shares, 2)
+                cost = shares * price
+                if cost > balance * 0.95:
+                    log.debug(f"Snipe skip: cost=${cost:.2f} > balance=${balance:.2f}")
+                    continue
                 log.info(
                     f"SNIPE: {opp.snipe_side} {opp.market.question[:40]} "
                     f"@ {price:.3f} size=${usd_size:.2f} shares={shares:.2f} net=${opp.net_profit:.4f}"
@@ -521,7 +536,8 @@ class UnifiedPolymarketBot:
         qualified = self._copy_trader.filter_traders(traders)
         self._copy_trader.update_followed(qualified)
 
-        # build set of valid token IDs from active markets
+        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+
         valid_tokens: set[str] = set()
         for m in self._active_markets:
             valid_tokens.add(m.yes_token_id)
@@ -553,6 +569,11 @@ class UnifiedPolymarketBot:
                     continue
                 copy_shares = max(copy_size / price, 5.0)
                 copy_shares = round(copy_shares, 2)
+
+                cost = copy_shares * price
+                if cost > balance * 0.95:
+                    log.debug(f"Copy skip: cost=${cost:.2f} > balance=${balance:.2f}")
+                    continue
 
                 time.sleep(self._copy_trader.config.trade_delay)
 
