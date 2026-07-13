@@ -28,9 +28,9 @@ polymarket:
     skew_factor: 0.015          # stronger skew to reduce directional risk
 
     # Sizing — small per-trade, high volume (HFT style)
-    quote_size_usd: 10.0        # $10 per side — smaller = more trades, less risk
-    max_position_per_market: 50.0   # $50 max per market (tighter for HFT)
-    max_total_exposure: 200.0       # $200 total — conservative for $150 account
+    quote_size_usd: 5.0         # $5 per side — fits $70 account, more markets
+    max_position_per_market: 25.0   # $25 max per market (scaled to account)
+    max_total_exposure: 50.0        # $50 total — conservative for $70 account
 
     # Market selection — cast wide net for LP rewards
     min_market_liquidity: 3000      # $3K minimum — wider net for more markets
@@ -45,7 +45,7 @@ polymarket:
     flatten_at_pct: 0.50            # start reducing at 50% — early de-risk
 
     # Risk — fast recovery HFT style
-    max_daily_loss: 30.0            # stop at $30 loss (20% of account)
+    max_daily_loss: 15.0            # stop at $15 loss (~20% of account)
     max_consecutive_losses: 4       # pause after 4 consecutive losses
     pause_after_loss_seconds: 120   # 2 min cooldown — get back in fast
 
@@ -77,17 +77,17 @@ polymarket:
   # ── Risk management (4-layer circuit breakers + dynamic sizing) ──
   risk:
     max_position_usd: 100         # $100 max single position
-    max_total_exposure_usd: 300   # $300 total (2x account)
-    max_single_market_pct: 0.12   # 12% max in one market — spread risk
+    max_total_exposure_usd: 50    # $50 total — scaled to $70 account
+    max_single_market_pct: 0.15   # 15% max in one market
     max_daily_trades: 200         # HFT: many small trades
-    max_daily_loss_usd: 30        # $30 daily stop (20% of account)
+    max_daily_loss_usd: 15        # $15 daily stop (~20% of account)
     min_kelly: 0.01               # lower floor for more trades
     max_kelly: 0.04               # conservative Kelly cap
     min_edge: 0.05                # 5% min edge — catch more opps
     min_confidence: "medium"
     max_errors_before_halt: 5     # halt faster on errors
     # multi-layer circuit breakers
-    max_monthly_loss_usd: 100     # L2: $100 monthly cap
+    max_monthly_loss_usd: 30      # L2: $30 monthly cap
     max_drawdown_pct: 0.15        # L3: 15% max drawdown
     max_total_loss_pct: 0.25      # L4: 25% lifetime halt
     # dynamic sizing — HFT adaptive
