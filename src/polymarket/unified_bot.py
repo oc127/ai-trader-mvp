@@ -707,10 +707,17 @@ class UnifiedPolymarketBot:
         for inv, merge_size in self._maker.get_mergeable_positions():
             if self._paper_mode and self._paper:
                 self._paper.add_balance(merge_size)
-            self._maker.record_merge(inv.condition_id, merge_size)
+            profit = self._maker.record_merge(inv.condition_id, merge_size)
+            self._maker_pnl = self._maker.daily_pnl
             log.info(
-                f"MERGE: {inv.question[:40]} — {merge_size:.1f} shares → ${merge_size:.2f} freed"
+                f"MERGE: {inv.question[:40]} — {merge_size:.1f} shares "
+                f"→ ${merge_size:.2f} freed, profit=${profit:+.4f}"
             )
+            if abs(profit) > 0.001:
+                self._alert(
+                    f"MERGE PROFIT: {inv.question[:40]} ${profit:+.4f}",
+                    alert_type="trade",
+                )
 
     def _check_maker_fills(self) -> None:
         """Poll open orders for deferred fills on resting GTC orders."""

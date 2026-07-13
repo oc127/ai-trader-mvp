@@ -358,14 +358,22 @@ class HighFreqMarketMaker:
                 mergeable.append((inv, merge_size))
         return mergeable
 
-    def record_merge(self, condition_id: str, size: float) -> None:
-        """Record a merge of YES+NO shares back to USDC."""
+    def record_merge(self, condition_id: str, size: float) -> float:
+        """Record a merge of YES+NO shares back to USDC. Returns profit."""
         inv = self._inventory.get(condition_id)
         if not inv:
-            return
+            return 0.0
         merge = min(size, inv.yes_shares, inv.no_shares)
+        # profit = $1.00 per merged pair minus what we paid for each side
+        profit = merge * (1.0 - inv.yes_avg_price - inv.no_avg_price)
+        inv.realized_pnl += profit
+        self._daily_pnl += profit
+        if profit > 0:
+            self._winning_trades += 1
+            self._consecutive_losses = 0
         inv.yes_shares -= merge
         inv.no_shares -= merge
+        return profit
 
     def get_stale_positions(self) -> list[MarketInventory]:
         """Get positions that have been held too long and need flattening."""
