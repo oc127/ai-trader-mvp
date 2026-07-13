@@ -687,7 +687,6 @@ class UnifiedPolymarketBot:
                     )
                     self._maker_pnl = self._maker.daily_pnl
             else:
-                # cancel resting orders for this market first to free balance
                 self._cancel_orders_for_market(inv.condition_id)
                 result = self._client.place_market_order(
                     order["token_id"], side, order["size"],
@@ -698,6 +697,10 @@ class UnifiedPolymarketBot:
                         inv.no_token_id, "SELL", order["token_id"],
                         0, result.filled_size,
                     )
+                elif "not enough balance" in str(result.error):
+                    log.warning(f"Clearing phantom inventory for {inv.question[:40]}")
+                    inv.yes_shares = 0.0
+                    inv.no_shares = 0.0
 
     def _merge_positions(self) -> None:
         """Merge YES+NO positions back to USDC to free capital."""
@@ -724,16 +727,30 @@ class UnifiedPolymarketBot:
         filled_ids = []
         for oid, info in list(self._known_orders.items()):
             if oid not in open_ids:
+                # verify actual fill via order status API
+                filled_size = 0.0
+                if not self._paper_mode:
+                    status = self._client.get_order_status(oid)
+                    if status:
+                        filled_size = float(status.get("size_matched", 0))
+                    if filled_size < 0.01:
+                        log.debug(f"Order {oid[:16]}... cancelled (not filled)")
+                        self._committed_usd -= info.get("cost", 0)
+                        filled_ids.append(oid)
+                        continue
+                else:
+                    filled_size = info["size"]
+
                 self._maker.on_fill(
                     info["cid"], info["question"], info["yes_tid"], info["no_tid"],
-                    info["side"], info["token_id"], info["price"], info["size"],
+                    info["side"], info["token_id"], info["price"], filled_size,
                 )
                 self._state.trades_today += 1
                 self._maker_pnl = self._maker.daily_pnl
                 self._committed_usd -= info.get("cost", 0)
                 log.info(
-                    f"FILL DETECTED: {info['side']} {info['question'][:40]} "
-                    f"@ {info['price']:.3f} size={info['size']:.1f}"
+                    f"FILL: {info['side']} {info['question'][:40]} "
+                    f"@ {info['price']:.3f} filled={filled_size:.1f}"
                 )
                 self._alert(
                     f"MAKER FILL: {info['question'][:40]} @ {info['price']:.3f}",

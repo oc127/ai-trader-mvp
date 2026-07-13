@@ -381,6 +381,15 @@ class PolymarketClient:
             log.error(f"Cancel all failed: {e}")
             return 0
 
+    def get_order_status(self, order_id: str) -> dict | None:
+        """Get a single order's status including fill amount."""
+        client = self._init_clob()
+        self._throttle()
+        try:
+            return client.get_order(order_id)
+        except Exception:
+            return None
+
     def get_open_orders(self) -> list[Order]:
         client = self._init_clob()
         self._throttle()
