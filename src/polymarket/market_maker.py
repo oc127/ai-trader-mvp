@@ -343,9 +343,10 @@ class HighFreqMarketMaker:
             if utilization > self._config.flatten_at_pct:
                 size *= 0.5
 
-        bid_shares = size / bid if bid > 0 else 0
+        min_shares = 5.0  # Polymarket minimum order size
+        bid_shares = max(size / bid, min_shares) if bid > 0 else 0
         no_price = 1.0 - ask
-        ask_shares = size / no_price if no_price > 0 else 0
+        ask_shares = max(size / no_price, min_shares) if no_price > 0 else 0
 
         agg_str = f" agg={bid_aggression:+.3f}" if bid_aggression else ""
         return QuotePair(
