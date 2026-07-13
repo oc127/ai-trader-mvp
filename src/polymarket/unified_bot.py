@@ -503,6 +503,12 @@ class UnifiedPolymarketBot:
         qualified = self._copy_trader.filter_traders(traders)
         self._copy_trader.update_followed(qualified)
 
+        # build set of valid token IDs from active markets
+        valid_tokens: set[str] = set()
+        for m in self._active_markets:
+            valid_tokens.add(m.yes_token_id)
+            valid_tokens.add(m.no_token_id)
+
         for t in qualified:
             if not self._copy_trader.should_copy(t.address):
                 continue
@@ -511,13 +517,16 @@ class UnifiedPolymarketBot:
             new_trades = self._copy_trader.detect_new_trades(t.address, trades)
 
             for trade in new_trades[:2]:
+                token_id = trade.get("asset", trade.get("asset_id", trade.get("tokenId", "")))
+                if not token_id or token_id not in valid_tokens:
+                    continue
+
                 copy_size = self._copy_trader.calculate_copy_size(
                     float(trade.get("size", 0) or 0)
                 )
                 if copy_size < self._copy_trader.config.min_copy_size_usd:
                     continue
 
-                token_id = trade.get("asset", trade.get("asset_id", trade.get("tokenId", "")))
                 raw_side = trade.get("side", "BUY").upper()
                 side = Side.BUY if raw_side == "BUY" else Side.SELL
                 price = float(trade.get("price", 0.50) or 0.50)
