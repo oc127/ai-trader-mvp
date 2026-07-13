@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
 
 from src.logger import get_logger
@@ -168,12 +169,15 @@ class HighFreqMarketMaker:
         return False
 
     def select_markets(self, markets: list) -> list:
-        """Filter markets suitable for market making.
+        """Filter markets suitable for HFT market making.
 
-        Prefers markets with moderate liquidity — too liquid means spreads
-        are too tight to profit; too illiquid means fills are rare.
+        Prioritizes near-expiry, high-volume markets (crypto prices,
+        sports, daily events) — these have two-sided flow and fast
+        capital turnover.
         """
         eligible = []
+        now = datetime.now(timezone.utc)
+
         for m in markets:
             if not m.active:
                 continue
@@ -192,7 +196,27 @@ class HighFreqMarketMaker:
             vol_score = min(m.volume_24h / 10_000, 2.0)
             base = liq_score * vol_score
 
-            # boost LP-reward-eligible markets (2x priority)
+            # near-expiry boost: markets expiring within 7 days get priority
+            days_left = self._days_to_expiry(m, now)
+            if 0.1 < days_left <= 1:
+                base *= 5.0
+            elif 1 < days_left <= 3:
+                base *= 3.0
+            elif 3 < days_left <= 7:
+                base *= 2.0
+            elif days_left > 30:
+                base *= 0.3
+
+            # crypto/price markets: high volume, two-sided flow, fast-moving
+            q = getattr(m, "question", "").lower()
+            if any(kw in q for kw in ("bitcoin", "btc", "eth", "crypto", "price", "above", "below")):
+                base *= 3.0
+            elif any(kw in q for kw in ("world cup", "fifa", "match", "goal", "soccer", "football")):
+                base *= 2.0
+            elif any(kw in q for kw in ("today", "tonight", "this week", "tomorrow")):
+                base *= 2.0
+
+            # boost LP-reward-eligible markets
             has_reward = (
                 self._reward_bands.get(getattr(m, "yes_token_id", ""), 0) > 0
                 or self._reward_bands.get(getattr(m, "no_token_id", ""), 0) > 0
@@ -200,15 +224,39 @@ class HighFreqMarketMaker:
             if has_reward:
                 base *= 2.0
 
-            # boost sports/World Cup markets (elevated reward pools)
-            q = getattr(m, "question", "").lower()
-            if any(kw in q for kw in ("world cup", "fifa", "match", "goal", "soccer", "football")):
-                base *= 1.5
-
             return base
 
         eligible.sort(key=_score, reverse=True)
-        return eligible[: self._config.max_markets]
+        selected = eligible[: self._config.max_markets]
+
+        if selected:
+            top = selected[0]
+            days = self._days_to_expiry(top, now)
+            exp_str = f"{days:.0f}d" if days < 999 else "n/a"
+            log.info(
+                f"Market selection: top={top.question[:45]} "
+                f"exp={exp_str} vol24h=${top.volume_24h:,.0f}"
+            )
+
+        return selected
+
+    @staticmethod
+    def _days_to_expiry(market, now: datetime) -> float:
+        end = getattr(market, "end_date", None)
+        if not end:
+            return 999.0
+        try:
+            if isinstance(end, str):
+                end = end.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(end)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                return 999.0
+            delta = (dt - now).total_seconds() / 86400
+            return max(delta, 0.0)
+        except (ValueError, TypeError):
+            return 999.0
 
     def generate_quotes(self, market, book_spread: float,
                         best_bid: float = 0.0, best_ask: float = 0.0,
