@@ -558,11 +558,14 @@ class UnifiedPolymarketBot:
                 try:
                     open_orders = self._client.get_open_orders()
                     self._committed_usd = sum(o.price * o.size for o in open_orders)
+                    # clear stale quote cache when no orders exist — force re-quoting
+                    if not open_orders:
+                        self._active_quotes.clear()
                 except Exception:
                     pass
             log.info(
                 f"Scan: {len(all_markets)} total → {len(self._active_markets)} eligible"
-                f" | committed=${self._committed_usd:.1f}"
+                f" | committed=${self._committed_usd:.1f} | quotes_cached={len(self._active_quotes)}"
             )
         except Exception as e:
             log.error(f"Market scan failed: {e}")
@@ -600,7 +603,7 @@ class UnifiedPolymarketBot:
             best_bid=best_bid, best_ask=best_ask, book_mid=book_mid,
         )
         if not quote:
-            if self._state.cycle_count <= 3:
+            if self._state.cycle_count % 30 == 1:
                 log.info(f"No quote: {market.question[:40]} (paused or at limit)")
             return
 
@@ -616,7 +619,7 @@ class UnifiedPolymarketBot:
         reserve = balance * 0.20  # keep 20% for flatten/emergencies
 
         if free_balance - total_cost < reserve:
-            if self._state.cycle_count <= 5:
+            if self._state.cycle_count % 30 == 1:
                 log.info(f"Skip quote {market.question[:30]}: free=${free_balance:.1f} need=${total_cost:.1f} reserve=${reserve:.1f}")
             return
 
@@ -752,6 +755,7 @@ class UnifiedPolymarketBot:
                     if filled_size < 0.01:
                         log.debug(f"Order {oid[:16]}... cancelled (not filled)")
                         self._committed_usd -= info.get("cost", 0)
+                        self._active_quotes.pop(info.get("cid", ""), None)
                         filled_ids.append(oid)
                         continue
                 else:
@@ -832,15 +836,16 @@ class UnifiedPolymarketBot:
         copy_status = self._copy_trader.status()
         risk_status = self._risk.status()
         uptime = (time.monotonic() - self._start_time) / 3600
-        bal = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
-        total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
-
-        # portfolio value = cash + estimated position values
-        prices = self._get_current_prices()
-        position_value = self._maker.estimate_position_value(prices)
-        equity = bal + position_value
         if self._paper_mode and self._paper:
+            bal = self._paper.get_balance()
             equity = self._paper.get_equity()
+            position_value = equity - bal
+        else:
+            bal = self._client.get_balance()
+            prices = self._get_current_prices()
+            position_value = self._maker.estimate_position_value(prices)
+            equity = bal + position_value
+        total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
 
         fill_bal = maker_status.get('fill_balance', '0/0')
 

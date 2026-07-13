@@ -266,14 +266,20 @@ class HighFreqMarketMaker:
 
         # competitive pricing: use order book levels when available
         if best_bid > 0 and best_ask > 0 and best_ask > best_bid:
-            # place bid at best_bid + 1 tick to get queue priority
-            bid = round(max(best_bid + 0.001, adjusted_mid - half_spread + bid_aggression), 4)
-            # don't exceed the book mid — we still need spread profit
-            bid = min(bid, round(adjusted_mid - self._config.min_half_spread * 0.5, 4))
-            ask = round(min(best_ask - 0.001, adjusted_mid + half_spread), 4)
+            bid = max(best_bid + 0.01, adjusted_mid - half_spread + bid_aggression)
+            bid = min(bid, adjusted_mid - self._config.min_half_spread * 0.5)
+            ask = min(best_ask - 0.01, adjusted_mid + half_spread)
         else:
-            bid = round(adjusted_mid - half_spread + bid_aggression, 4)
-            ask = round(adjusted_mid + half_spread, 4)
+            bid = adjusted_mid - half_spread + bid_aggression
+            ask = adjusted_mid + half_spread
+
+        # round to tick size (0.01 for prices 0.04–0.96, 0.001 outside)
+        tick = 0.001 if (bid < 0.04 or bid > 0.96) else 0.01
+        bid = round(bid / tick) * tick
+        bid = round(bid, 3)
+        tick = 0.001 if (ask < 0.04 or ask > 0.96) else 0.01
+        ask = round(ask / tick) * tick
+        ask = round(ask, 3)
 
         bid = max(0.01, min(bid, 0.98))
         ask = max(0.02, min(ask, 0.99))
