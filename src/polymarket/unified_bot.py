@@ -611,12 +611,12 @@ class UnifiedPolymarketBot:
         if prev and abs(quote.bid_price - prev.bid_price) < 0.002 and abs(quote.ask_price - prev.ask_price) < 0.002:
             return
 
-        # check available balance before placing (reserve 20% for flatten)
+        # check available balance before placing (reserve 10% for flatten)
         free_balance = balance - self._committed_usd
         bid_cost = quote.bid_price * quote.bid_size
         ask_cost = (1.0 - quote.ask_price) * quote.ask_size
         total_cost = bid_cost + ask_cost
-        reserve = balance * 0.20  # keep 20% for flatten/emergencies
+        reserve = balance * 0.10  # keep 10% for flatten/emergencies
 
         if free_balance - total_cost < reserve:
             if self._state.cycle_count % 30 == 1:

@@ -28,9 +28,9 @@ polymarket:
     skew_factor: 0.015          # stronger skew to reduce directional risk
 
     # Sizing — small per-trade, high volume (HFT style)
-    quote_size_usd: 5.0         # $5 per side — fits $70 account, more markets
-    max_position_per_market: 25.0   # $25 max per market (scaled to account)
-    max_total_exposure: 50.0        # $50 total — conservative for $70 account
+    quote_size_usd: 2.0         # $2 per side — max market coverage with $50 cash
+    max_position_per_market: 15.0   # $15 max per market
+    max_total_exposure: 40.0        # $40 total — leave room for flatten
 
     # Market selection — cast wide net for LP rewards
     min_market_liquidity: 3000      # $3K minimum — wider net for more markets
