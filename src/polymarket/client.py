@@ -50,6 +50,11 @@ class PolymarketClient:
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._heartbeat_running = False
 
+        # balance cache (avoid spamming API)
+        self._cached_balance: float = 0.0
+        self._balance_cache_ts: float = 0.0
+        self._balance_cache_ttl: float = 15.0  # seconds
+
     @staticmethod
     def _make_api_creds(api_key: str, api_secret: str, api_passphrase: str):
         """Build an ApiCreds object the SDK expects (not a plain dict)."""
@@ -350,6 +355,7 @@ class PolymarketClient:
             )
             order_id = resp.get("orderID", resp.get("id", ""))
             log.info(f"Order placed: {side.value} {size}@{price} token={token_id[:12]}... id={order_id}")
+            self._balance_cache_ts = 0.0  # invalidate cache after trade
             return TradeResult(success=True, order_id=str(order_id))
         except Exception as e:
             err = str(e)
@@ -447,32 +453,22 @@ class PolymarketClient:
             log.error(f"Failed to get orders: {e}")
             return []
 
-    def get_balance(self) -> float:
-        """Get USDC balance on Polymarket (multi-method with fallback).
+    def get_balance(self, force: bool = False) -> float:
+        """Get USDC balance with 15s cache to avoid API spam."""
+        now = time.monotonic()
+        if not force and self._cached_balance > 0 and (now - self._balance_cache_ts) < self._balance_cache_ttl:
+            return self._cached_balance
 
-        The CLOB API returns balance for the signer address, but for proxy wallets
-        the funds are in the funder address. We try multiple methods:
-        1. SDK balance-allowance (works if API maps signer→proxy correctly)
-        2. On-chain USDC query of the proxy wallet via Polygon RPC
-        3. Config-specified initial balance as final fallback
-        """
-        # Method 1: SDK get_balance_allowance
         amount = self._balance_via_sdk()
+        if amount <= 0:
+            amount = self._balance_via_polygon_rpc()
+        if amount <= 0 and self._initial_balance > 0:
+            amount = self._initial_balance
+
         if amount > 0:
-            return amount
-
-        # Method 2: Direct on-chain USDC query on Polygon (proxy wallet)
-        amount = self._balance_via_polygon_rpc()
-        if amount > 0:
-            return amount
-
-        # Method 3: Config fallback (user-specified known balance)
-        if self._initial_balance > 0:
-            log.info(f"Using config initial_balance: ${self._initial_balance:.2f}")
-            return self._initial_balance
-
-        log.warning("All balance methods returned 0 — set polymarket.initial_balance in config")
-        return 0.0
+            self._cached_balance = amount
+            self._balance_cache_ts = now
+        return amount
 
     def get_token_balance(self, token_id: str) -> float:
         """Get conditional token balance (shares held) for a specific token."""
@@ -488,9 +484,11 @@ class PolymarketClient:
             if isinstance(bal, dict):
                 raw = float(bal.get("balance", 0) or 0)
                 if raw > 0:
-                    return raw / 1e6
+                    shares = raw / 1e6
+                    log.info(f"Token {token_id[:12]}... holds {shares:.2f} shares")
+                    return shares
         except Exception as e:
-            log.debug(f"Token balance query failed: {e}")
+            log.warning(f"Token balance query failed for {token_id[:12]}...: {e}")
         return 0.0
 
     def get_trades(self, limit: int = 500) -> list[dict]:

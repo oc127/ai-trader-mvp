@@ -629,32 +629,33 @@ class UnifiedPolymarketBot:
             trades = self._client.get_trades(limit=500)
             for t in trades:
                 tid = t.get("asset_id", t.get("token_id", ""))
-                if tid:
+                if tid and tid in market_by_token:
                     token_ids_to_check.add(tid)
-            log.info(f"Found {len(token_ids_to_check)} unique tokens in trade history")
+            log.info(f"Found {len(token_ids_to_check)} tradeable tokens in history (from {len(trades)} trades)")
         except Exception as e:
-            log.debug(f"Trade history fetch failed: {e}")
+            log.warning(f"Trade history fetch failed: {e}")
 
+        checked = 0
         for token_id in token_ids_to_check:
             if token_id in self._held_positions:
                 continue
-            try:
-                shares = self._client.get_token_balance(token_id)
-                if shares >= 1.0:
-                    info = market_by_token.get(token_id)
-                    if info:
-                        market, outcome = info
-                        price = market.yes_price if outcome == Outcome.YES else market.no_price
-                        self._held_positions[token_id] = _HeldPosition(
-                            market=market, outcome=outcome, token_id=token_id,
-                            shares=shares, current_price=price,
-                        )
-                        log.info(
-                            f"  Position: {outcome.value} {market.question[:50]} | "
-                            f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
-                        )
-            except Exception:
-                pass
+            shares = self._client.get_token_balance(token_id)
+            checked += 1
+            if shares >= 1.0:
+                info = market_by_token.get(token_id)
+                if info:
+                    market, outcome = info
+                    price = market.yes_price if outcome == Outcome.YES else market.no_price
+                    self._held_positions[token_id] = _HeldPosition(
+                        market=market, outcome=outcome, token_id=token_id,
+                        shares=shares, current_price=price,
+                    )
+                    log.info(
+                        f"  Position: {outcome.value} {market.question[:50]} | "
+                        f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
+                    )
+            if checked % 10 == 0:
+                log.info(f"  ... checked {checked}/{len(token_ids_to_check)} tokens")
 
         total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
         log.info(f"Discovered {len(self._held_positions)} positions, est. value ${total_value:.2f}")
