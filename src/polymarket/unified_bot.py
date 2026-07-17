@@ -611,22 +611,27 @@ class UnifiedPolymarketBot:
     # ── Position Management (Layer 5) ──
 
     def _discover_positions(self) -> None:
-        """Discover ALL positions using Polymarket's data API.
+        """Discover ALL positions using multiple methods.
 
-        Primary: query data-api.polymarket.com/positions for the user's wallet.
-        This returns ALL positions including ones bought via the website.
-        For each position, looks up the market from Gamma if not already known.
-        Fallback: scan token balances across known markets.
+        1. Primary: query data-api.polymarket.com/positions (finds ALL positions)
+        2. Fallback: scan token balances across known markets (top 200 only)
+        Both methods run — data API finds positions in obscure markets,
+        token scan catches anything data API might miss.
         """
-        log.info("Discovering positions via data API...")
+        log.info("Discovering positions...")
 
         positions_data = self._client.get_user_positions()
-
         if positions_data:
             self._discover_from_data_api(positions_data)
+            log.info(f"Data API found {len(self._held_positions)} positions")
         else:
-            log.info("Data API returned nothing, falling back to token scan...")
-            self._discover_via_token_scan()
+            log.warning("Data API returned nothing — using token scan only")
+
+        pre_scan = len(self._held_positions)
+        self._discover_via_token_scan()
+        extra = len(self._held_positions) - pre_scan
+        if extra > 0:
+            log.info(f"Token scan found {extra} additional positions")
 
         total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
         log.info(f"Discovery complete: {len(self._held_positions)} positions, est. value ${total_value:.2f}")

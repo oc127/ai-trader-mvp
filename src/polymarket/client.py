@@ -500,19 +500,35 @@ class PolymarketClient:
     def get_user_positions(self) -> list[dict]:
         """Fetch ALL positions for the user from Polymarket's data API.
 
-        Returns list of dicts with keys: conditionId, tokenId, size, price, outcome, etc.
-        This finds positions bought via the website, not just CLOB trades.
+        Tries both proxy/funder wallet and signer wallet since positions
+        may be stored under either address depending on signature type.
         """
         import requests
 
-        wallet = self._funder
-        if not wallet:
-            try:
-                from eth_account import Account
-                wallet = Account.from_key(self._private_key).address
-            except Exception:
-                log.warning("Cannot determine wallet address for position query")
-                return []
+        wallets: list[str] = []
+        if self._funder:
+            wallets.append(self._funder)
+        try:
+            from eth_account import Account
+            signer = Account.from_key(self._private_key).address
+            if signer.lower() not in [w.lower() for w in wallets]:
+                wallets.append(signer)
+        except Exception:
+            pass
+
+        if not wallets:
+            log.warning("No wallet address for position query")
+            return []
+
+        for wallet in wallets:
+            positions = self._fetch_positions_for_wallet(wallet)
+            if positions:
+                return positions
+
+        return []
+
+    def _fetch_positions_for_wallet(self, wallet: str) -> list[dict]:
+        import requests
 
         all_positions: list[dict] = []
         for offset in range(0, 500, 100):
@@ -524,20 +540,23 @@ class PolymarketClient:
                             "sizeThreshold": 0.1},
                     timeout=15,
                 )
+                log.info(f"Positions API [{wallet[:12]}...] status={resp.status_code}, offset={offset}")
                 if resp.status_code != 200:
-                    log.debug(f"Positions API returned {resp.status_code}")
+                    log.warning(f"Positions API error: {resp.status_code} — {resp.text[:200]}")
                     break
                 batch = resp.json()
                 if not batch:
                     break
                 all_positions.extend(batch)
+                log.info(f"  got {len(batch)} positions (total {len(all_positions)})")
                 if len(batch) < 100:
                     break
             except Exception as e:
-                log.debug(f"Positions API failed: {e}")
+                log.warning(f"Positions API failed for {wallet[:12]}...: {e}")
                 break
 
-        log.info(f"Data API returned {len(all_positions)} positions for {wallet[:12]}...")
+        if all_positions:
+            log.info(f"Data API: {len(all_positions)} positions for {wallet[:12]}...")
         return all_positions
 
     def get_market_by_condition_id(self, condition_id: str) -> Optional[Market]:
