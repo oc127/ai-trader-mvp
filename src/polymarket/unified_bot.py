@@ -722,31 +722,15 @@ class UnifiedPolymarketBot:
             )
 
     def _discover_via_token_scan(self) -> None:
-        """Scan market tokens for non-zero balances with early stopping.
+        """Scan Gamma top markets for non-zero token balances.
 
-        Uses CLOB SDK pagination to get ALL markets, then scans tokens.
-        Stops early once no new positions are found for 500 consecutive tokens
-        to avoid scanning 35,000+ tokens for hours.
+        Only scans well-known markets from Gamma API (limit=500).
+        Does NOT use CLOB all-markets (produces false positives).
         """
-        try:
-            clob_markets = self._client.get_all_clob_markets(max_pages=20)
-            if clob_markets:
-                existing_cids = {m.condition_id for m in (self._all_markets or [])}
-                added = 0
-                for m in clob_markets:
-                    if m.condition_id not in existing_cids:
-                        self._all_markets.append(m)
-                        existing_cids.add(m.condition_id)
-                        added += 1
-                if added:
-                    log.info(f"Added {added} markets from CLOB (total {len(self._all_markets)})")
-        except Exception as e:
-            log.warning(f"CLOB market pagination failed: {e}")
-
         markets = self._all_markets or []
         if not markets:
             try:
-                markets = self._client.get_markets(active=True, limit=200, min_liquidity=0)
+                markets = self._client.get_markets(active=True, limit=500, min_liquidity=0)
                 self._all_markets = markets
             except Exception as e:
                 log.error(f"Market fetch for position discovery failed: {e}")
@@ -761,29 +745,23 @@ class UnifiedPolymarketBot:
 
         log.info(f"Scanning {len(tokens_to_scan)} tokens across {len(markets)} markets...")
         checked = 0
-        since_last_find = 0
         for token_id, market, outcome in tokens_to_scan:
             if token_id in self._held_positions:
                 continue
             shares = self._client.get_token_balance(token_id)
             checked += 1
-            since_last_find += 1
             if shares >= 1.0:
                 price = market.yes_price if outcome == Outcome.YES else market.no_price
                 self._held_positions[token_id] = _HeldPosition(
                     market=market, outcome=outcome, token_id=token_id,
                     shares=shares, current_price=price,
                 )
-                since_last_find = 0
                 log.info(
                     f"  Found: {outcome.value} {market.question[:50]} | "
                     f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
                 )
-            if checked % 50 == 0:
+            if checked % 100 == 0:
                 log.info(f"  ... scanned {checked}/{len(tokens_to_scan)} tokens, found {len(self._held_positions)} positions")
-            if since_last_find >= 500 and len(self._held_positions) >= 5:
-                log.info(f"  Early stop: no new positions in {since_last_find} tokens, {len(self._held_positions)} found so far")
-                break
 
     def _manage_positions(self) -> None:
         """Evaluate held positions — sell when profitable or when cash is needed."""
