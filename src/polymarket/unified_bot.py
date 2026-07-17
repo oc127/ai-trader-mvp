@@ -105,6 +105,10 @@ class UnifiedPolymarketBot:
         self._position_scan_interval = 300.0  # check every 5 min
         self._positions_discovered = False
 
+        # global position limits for small accounts
+        self._max_open_positions = pm_cfg.get("max_open_positions", 15)
+        self._min_cash_reserve = pm_cfg.get("min_cash_reserve", 5.0)
+
         # PnL tracking
         self._maker_pnl = 0.0
         self._edge_pnl = 0.0
@@ -307,6 +311,20 @@ class UnifiedPolymarketBot:
             self._report()
             self._last_report_ts = now
 
+    # ── Position Guard ──
+
+    def _can_open_new_position(self, layer: str = "") -> bool:
+        """Check if we should open a new position (global limit + cash reserve)."""
+        total_positions = len(self._edge_positions) + len(self._held_positions)
+        if total_positions >= self._max_open_positions:
+            log.debug(f"Position limit reached ({total_positions}/{self._max_open_positions}), skip {layer}")
+            return False
+        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+        if balance < self._min_cash_reserve:
+            log.debug(f"Cash reserve too low (${balance:.2f} < ${self._min_cash_reserve}), skip {layer}")
+            return False
+        return True
+
     # ── Slow Cycle (every 30s) — edge detection ──
 
     def _slow_cycle(self) -> None:
@@ -381,13 +399,18 @@ class UnifiedPolymarketBot:
         return ranked
 
     def _execute_edge_trade(self, opp: Opportunity) -> bool:
+        if not self._can_open_new_position("edge"):
+            return False
+
         balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
         exposure = self._get_edge_exposure()
         size = self._risk.size_position(opp, balance, exposure)
         if size <= 0:
             return False
 
-        max_spend = balance * 0.40
+        max_spend = min(balance * 0.40, balance - self._min_cash_reserve)
+        if max_spend <= 0:
+            return False
         size = min(size, max_spend)
 
         token_id = opp.market.yes_token_id if opp.outcome == Outcome.YES else opp.market.no_token_id
@@ -469,6 +492,9 @@ class UnifiedPolymarketBot:
     # ── Arbitrage (Layer 3) ──
 
     def _arb_cycle(self) -> None:
+        if not self._can_open_new_position("arb"):
+            return
+
         markets = self._all_markets or self._active_markets
         if not markets:
             return
@@ -572,6 +598,8 @@ class UnifiedPolymarketBot:
             new_trades = self._copy_trader.detect_new_trades(t.address, trades)
 
             for trade in new_trades[:2]:
+                if not self._can_open_new_position("copy"):
+                    break
                 token_id = trade.get("asset", trade.get("asset_id", trade.get("tokenId", "")))
                 if not token_id or token_id not in valid_tokens:
                     continue
