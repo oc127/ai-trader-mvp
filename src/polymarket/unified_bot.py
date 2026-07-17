@@ -694,10 +694,11 @@ class UnifiedPolymarketBot:
             )
 
     def _discover_via_token_scan(self) -> None:
-        """Scan ALL market tokens for non-zero balances.
+        """Scan market tokens for non-zero balances with early stopping.
 
-        Uses CLOB SDK pagination to get ALL markets (not just Gamma's top 200),
-        ensuring political and low-volume markets are included.
+        Uses CLOB SDK pagination to get ALL markets, then scans tokens.
+        Stops early once no new positions are found for 500 consecutive tokens
+        to avoid scanning 35,000+ tokens for hours.
         """
         try:
             clob_markets = self._client.get_all_clob_markets(max_pages=20)
@@ -732,23 +733,29 @@ class UnifiedPolymarketBot:
 
         log.info(f"Scanning {len(tokens_to_scan)} tokens across {len(markets)} markets...")
         checked = 0
+        since_last_find = 0
         for token_id, market, outcome in tokens_to_scan:
             if token_id in self._held_positions:
                 continue
             shares = self._client.get_token_balance(token_id)
             checked += 1
+            since_last_find += 1
             if shares >= 1.0:
                 price = market.yes_price if outcome == Outcome.YES else market.no_price
                 self._held_positions[token_id] = _HeldPosition(
                     market=market, outcome=outcome, token_id=token_id,
                     shares=shares, current_price=price,
                 )
+                since_last_find = 0
                 log.info(
                     f"  Found: {outcome.value} {market.question[:50]} | "
                     f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
                 )
             if checked % 50 == 0:
                 log.info(f"  ... scanned {checked}/{len(tokens_to_scan)} tokens, found {len(self._held_positions)} positions")
+            if since_last_find >= 500 and len(self._held_positions) >= 5:
+                log.info(f"  Early stop: no new positions in {since_last_find} tokens, {len(self._held_positions)} found so far")
+                break
 
     def _manage_positions(self) -> None:
         """Evaluate held positions — sell when profitable or when cash is needed."""
