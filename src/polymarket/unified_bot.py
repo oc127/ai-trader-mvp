@@ -611,8 +611,12 @@ class UnifiedPolymarketBot:
     # ── Position Management (Layer 5) ──
 
     def _discover_positions(self) -> None:
-        """On startup, discover existing positions via trades history + balance checks."""
-        log.info("Discovering existing positions...")
+        """On startup, discover ALL positions by scanning token balances.
+
+        Checks both YES and NO tokens for every known market. This finds
+        positions bought via the website, not just bot trades.
+        """
+        log.info("Discovering positions (scanning all market tokens)...")
         markets = self._all_markets or []
         if not markets:
             try:
@@ -622,48 +626,35 @@ class UnifiedPolymarketBot:
                 log.error(f"Market fetch for position discovery failed: {e}")
                 return
 
-        market_by_token: dict[str, tuple[Market, Outcome]] = {}
+        tokens_to_scan: list[tuple[str, Market, Outcome]] = []
         for m in markets:
             if m.yes_token_id:
-                market_by_token[m.yes_token_id] = (m, Outcome.YES)
+                tokens_to_scan.append((m.yes_token_id, m, Outcome.YES))
             if m.no_token_id:
-                market_by_token[m.no_token_id] = (m, Outcome.NO)
+                tokens_to_scan.append((m.no_token_id, m, Outcome.NO))
 
-        token_ids_to_check: set[str] = set()
-        try:
-            trades = self._client.get_trades(limit=500)
-            for t in trades:
-                tid = t.get("asset_id", t.get("token_id", ""))
-                if tid and tid in market_by_token:
-                    token_ids_to_check.add(tid)
-            log.info(f"Found {len(token_ids_to_check)} tradeable tokens in history (from {len(trades)} trades)")
-        except Exception as e:
-            log.warning(f"Trade history fetch failed: {e}")
-
+        log.info(f"Scanning {len(tokens_to_scan)} tokens across {len(markets)} markets...")
         checked = 0
-        for token_id in token_ids_to_check:
+        for token_id, market, outcome in tokens_to_scan:
             if token_id in self._held_positions:
                 continue
             shares = self._client.get_token_balance(token_id)
             checked += 1
             if shares >= 1.0:
-                info = market_by_token.get(token_id)
-                if info:
-                    market, outcome = info
-                    price = market.yes_price if outcome == Outcome.YES else market.no_price
-                    self._held_positions[token_id] = _HeldPosition(
-                        market=market, outcome=outcome, token_id=token_id,
-                        shares=shares, current_price=price,
-                    )
-                    log.info(
-                        f"  Position: {outcome.value} {market.question[:50]} | "
-                        f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
-                    )
-            if checked % 10 == 0:
-                log.info(f"  ... checked {checked}/{len(token_ids_to_check)} tokens")
+                price = market.yes_price if outcome == Outcome.YES else market.no_price
+                self._held_positions[token_id] = _HeldPosition(
+                    market=market, outcome=outcome, token_id=token_id,
+                    shares=shares, current_price=price,
+                )
+                log.info(
+                    f"  Found: {outcome.value} {market.question[:50]} | "
+                    f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
+                )
+            if checked % 50 == 0:
+                log.info(f"  ... scanned {checked}/{len(tokens_to_scan)} tokens, found {len(self._held_positions)} positions")
 
         total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
-        log.info(f"Discovered {len(self._held_positions)} positions, est. value ${total_value:.2f}")
+        log.info(f"Discovery complete: {len(self._held_positions)} positions, est. value ${total_value:.2f}")
         self._positions_discovered = True
 
     def _manage_positions(self) -> None:
@@ -674,6 +665,8 @@ class UnifiedPolymarketBot:
             return
 
         balance = self._client.get_balance()
+        total_held = sum(p.shares * p.current_price for p in self._held_positions.values())
+        log.info(f"Position check: {len(self._held_positions)} positions, held=${total_held:.2f}, cash=${balance:.2f}")
         markets = self._all_markets or []
         market_by_cid: dict[str, Market] = {m.condition_id: m for m in markets}
 
@@ -687,16 +680,15 @@ class UnifiedPolymarketBot:
                     else fresh_market.no_price
                 )
 
-            shares = self._client.get_token_balance(token_id)
-            if shares < 1.0:
-                log.info(f"Position closed: {pos.outcome.value} {pos.market.question[:40]}")
-                del self._held_positions[token_id]
-                continue
-            pos.shares = shares
-
             action, reason = self._evaluate_position(pos, balance)
 
             if action == "sell" and sells_this_cycle < 3:
+                shares = self._client.get_token_balance(token_id)
+                if shares < 1.0:
+                    log.info(f"Position closed: {pos.outcome.value} {pos.market.question[:40]}")
+                    del self._held_positions[token_id]
+                    continue
+                pos.shares = shares
                 sell_price = max(pos.current_price * 0.97, 0.01)
                 sell_shares = math.floor(pos.shares * 100) / 100
                 if sell_shares < 1.0:
@@ -737,23 +729,20 @@ class UnifiedPolymarketBot:
         if price <= 0.05:
             return "sell", f"near-zero @ {price:.0%}, cut loss"
 
-        if price >= 0.85:
-            return "hold", f"strong @ {price:.0%}, approaching resolution"
+        if price >= 0.80:
+            return "hold", f"strong @ {price:.0%}"
 
-        # cash is less than 10% of portfolio — sell weakest positions
-        if cash_ratio < 0.10:
-            if price < 0.50:
-                return "sell", f"low cash ({cash_ratio:.0%}), freeing ${pos_value:.2f}"
-            if price < 0.70:
-                return "sell", f"low cash ({cash_ratio:.0%}), trimming ${pos_value:.2f}"
+        # 50-80%: uncertain — sell if we need cash
+        if cash_ratio < 0.10 and price < 0.80:
+            return "sell", f"freeing cash ({cash_ratio:.0%}), price={price:.0%}"
 
-        # cash under $5 — sell moderate positions
-        if balance < 5.0 and price < 0.60:
+        # under 50%: position has gone bad — cut loss
+        if price < 0.50:
+            return "sell", f"cut loss @ {price:.0%} (${pos_value:.2f})"
+
+        # cash under $5 — sell to get trading capital
+        if balance < 5.0 and price < 0.75:
             return "sell", f"need cash (bal=${balance:.2f})"
-
-        # position too large relative to portfolio — trim
-        if total_held > 0 and pos_value / total_held > 0.30 and price < 0.70:
-            return "sell", f"concentrated ({pos_value/total_held:.0%} of portfolio)"
 
         return "hold", f"price={price:.0%}"
 
