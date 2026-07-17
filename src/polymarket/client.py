@@ -154,33 +154,39 @@ class PolymarketClient:
         min_volume: float = 0,
         min_liquidity: float = 0,
     ) -> list[Market]:
-        """Fetch markets from Gamma API with multiple queries for coverage.
+        """Fetch markets from Gamma API with pagination for broad coverage.
 
-        Queries twice: once sorted by volume, once sorted by liquidity,
-        to work around Gamma API sort unreliability. Deduplicates by condition_id.
+        Queries multiple pages sorted by volume and liquidity, then deduplicates.
         """
         import requests
 
         all_raw: dict[str, dict] = {}
+        page_size = min(limit, 100)
 
         for sort_field in ("volume24hr", "liquidity"):
-            self._throttle()
-            params: dict[str, Any] = {
-                "limit": limit,
-                "active": active,
-                "closed": False,
-                "order": sort_field,
-                "ascending": False,
-            }
-            try:
-                resp = requests.get(f"{GAMMA_API}/markets", params=params, timeout=15)
-                resp.raise_for_status()
-                for m in resp.json():
-                    cid = str(m.get("conditionId", m.get("condition_id", "")))
-                    if cid and cid not in all_raw:
-                        all_raw[cid] = m
-            except Exception as e:
-                log.debug(f"Gamma fetch ({sort_field}) failed: {e}")
+            for offset in range(0, limit, page_size):
+                self._throttle()
+                params: dict[str, Any] = {
+                    "limit": page_size,
+                    "offset": offset,
+                    "active": active,
+                    "closed": False,
+                    "order": sort_field,
+                    "ascending": False,
+                }
+                try:
+                    resp = requests.get(f"{GAMMA_API}/markets", params=params, timeout=15)
+                    resp.raise_for_status()
+                    batch = resp.json()
+                    for m in batch:
+                        cid = str(m.get("conditionId", m.get("condition_id", "")))
+                        if cid and cid not in all_raw:
+                            all_raw[cid] = m
+                    if len(batch) < page_size:
+                        break
+                except Exception as e:
+                    log.debug(f"Gamma fetch ({sort_field}, offset={offset}) failed: {e}")
+                    break
 
         markets: list[Market] = []
 
@@ -490,6 +496,112 @@ class PolymarketClient:
         except Exception as e:
             log.warning(f"Token balance query failed for {token_id[:12]}...: {e}")
         return 0.0
+
+    def get_user_positions(self) -> list[dict]:
+        """Fetch ALL positions for the user from Polymarket's data API.
+
+        Returns list of dicts with keys: conditionId, tokenId, size, price, outcome, etc.
+        This finds positions bought via the website, not just CLOB trades.
+        """
+        import requests
+
+        wallet = self._funder
+        if not wallet:
+            try:
+                from eth_account import Account
+                wallet = Account.from_key(self._private_key).address
+            except Exception:
+                log.warning("Cannot determine wallet address for position query")
+                return []
+
+        all_positions: list[dict] = []
+        for offset in range(0, 500, 100):
+            self._throttle()
+            try:
+                resp = requests.get(
+                    f"https://data-api.polymarket.com/positions",
+                    params={"user": wallet.lower(), "limit": 100, "offset": offset,
+                            "sizeThreshold": 0.1},
+                    timeout=15,
+                )
+                if resp.status_code != 200:
+                    log.debug(f"Positions API returned {resp.status_code}")
+                    break
+                batch = resp.json()
+                if not batch:
+                    break
+                all_positions.extend(batch)
+                if len(batch) < 100:
+                    break
+            except Exception as e:
+                log.debug(f"Positions API failed: {e}")
+                break
+
+        log.info(f"Data API returned {len(all_positions)} positions for {wallet[:12]}...")
+        return all_positions
+
+    def get_market_by_condition_id(self, condition_id: str) -> Optional[Market]:
+        """Look up a single market from Gamma API by condition_id."""
+        import requests
+
+        self._throttle()
+        try:
+            resp = requests.get(
+                f"{GAMMA_API}/markets",
+                params={"condition_id": condition_id, "limit": 1},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                return None
+
+            m = data[0]
+            tokens_raw = m.get("clobTokenIds") or m.get("tokens", [])
+            if isinstance(tokens_raw, str):
+                import json as _json3
+                try:
+                    tokens_raw = _json3.loads(tokens_raw)
+                except (ValueError, TypeError):
+                    return None
+            if not tokens_raw or len(tokens_raw) < 2:
+                return None
+
+            prices_raw = m.get("outcomePrices", "0.5,0.5")
+            if isinstance(prices_raw, list):
+                yes_price = float(prices_raw[0]) if prices_raw else 0.5
+            elif isinstance(prices_raw, str):
+                import json as _json4
+                try:
+                    parsed = _json4.loads(prices_raw)
+                    yes_price = float(parsed[0]) if parsed else 0.5
+                except (ValueError, TypeError):
+                    parts = prices_raw.split(",")
+                    yes_price = float(parts[0]) if parts else 0.5
+            else:
+                yes_price = 0.5
+
+            yes_tid = tokens_raw[0] if isinstance(tokens_raw[0], str) else str(tokens_raw[0])
+            no_tid = tokens_raw[1] if isinstance(tokens_raw[1], str) else str(tokens_raw[1])
+
+            return Market(
+                condition_id=str(m.get("conditionId", m.get("condition_id", ""))),
+                question=str(m.get("question", "")),
+                slug=str(m.get("slug", "")),
+                yes_token_id=yes_tid,
+                no_token_id=no_tid,
+                yes_price=yes_price,
+                no_price=1.0 - yes_price,
+                volume=float(m.get("volume", 0) or 0),
+                volume_24h=float(m.get("volume24hr", 0) or 0),
+                liquidity=float(m.get("liquidity", 0) or 0),
+                end_date=m.get("endDate") or m.get("end_date_iso"),
+                category=str(m.get("groupItemTitle", "") or m.get("category", "")),
+                active=bool(m.get("active", True)),
+            )
+        except Exception as e:
+            log.debug(f"Gamma lookup failed for {condition_id[:16]}...: {e}")
+            return None
 
     def get_trades(self, limit: int = 500) -> list[dict]:
         """Fetch recent trades to discover positions."""

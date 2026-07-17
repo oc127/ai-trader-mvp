@@ -611,12 +611,85 @@ class UnifiedPolymarketBot:
     # ── Position Management (Layer 5) ──
 
     def _discover_positions(self) -> None:
-        """On startup, discover ALL positions by scanning token balances.
+        """Discover ALL positions using Polymarket's data API.
 
-        Checks both YES and NO tokens for every known market. This finds
-        positions bought via the website, not just bot trades.
+        Primary: query data-api.polymarket.com/positions for the user's wallet.
+        This returns ALL positions including ones bought via the website.
+        For each position, looks up the market from Gamma if not already known.
+        Fallback: scan token balances across known markets.
         """
-        log.info("Discovering positions (scanning all market tokens)...")
+        log.info("Discovering positions via data API...")
+
+        positions_data = self._client.get_user_positions()
+
+        if positions_data:
+            self._discover_from_data_api(positions_data)
+        else:
+            log.info("Data API returned nothing, falling back to token scan...")
+            self._discover_via_token_scan()
+
+        total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
+        log.info(f"Discovery complete: {len(self._held_positions)} positions, est. value ${total_value:.2f}")
+        self._positions_discovered = True
+
+    def _discover_from_data_api(self, positions_data: list[dict]) -> None:
+        """Process positions returned by data-api.polymarket.com."""
+        known_markets: dict[str, Market] = {}
+        for m in (self._all_markets or []):
+            known_markets[m.condition_id] = m
+
+        for pos_data in positions_data:
+            cid = str(pos_data.get("conditionId", pos_data.get("condition_id", "")))
+            if not cid:
+                continue
+
+            raw_size = float(pos_data.get("size", 0) or 0)
+            if raw_size < 0.5:
+                continue
+
+            asset_id = str(pos_data.get("asset", pos_data.get("assetId", pos_data.get("token_id", ""))))
+            outcome_str = str(pos_data.get("outcome", "")).upper()
+            price = float(pos_data.get("curPrice", pos_data.get("price", 0.5)) or 0.5)
+
+            if asset_id in self._held_positions:
+                continue
+
+            market = known_markets.get(cid)
+            if not market:
+                market = self._client.get_market_by_condition_id(cid)
+                if market:
+                    known_markets[cid] = market
+                    if market not in self._all_markets:
+                        self._all_markets.append(market)
+
+            if not market:
+                log.debug(f"Skipping position {cid[:16]}... — market not found")
+                continue
+
+            if outcome_str == "YES" or asset_id == market.yes_token_id:
+                outcome = Outcome.YES
+                if not asset_id or asset_id == cid:
+                    asset_id = market.yes_token_id
+            else:
+                outcome = Outcome.NO
+                if not asset_id or asset_id == cid:
+                    asset_id = market.no_token_id
+
+            shares = self._client.get_token_balance(asset_id)
+            if shares < 0.5:
+                shares = raw_size
+
+            self._held_positions[asset_id] = _HeldPosition(
+                market=market, outcome=outcome, token_id=asset_id,
+                shares=shares, current_price=price,
+            )
+            log.info(
+                f"  Found: {outcome.value} {market.question[:50]} | "
+                f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
+            )
+
+    def _discover_via_token_scan(self) -> None:
+        """Fallback: scan all known market tokens for non-zero balances."""
         markets = self._all_markets or []
         if not markets:
             try:
@@ -653,10 +726,6 @@ class UnifiedPolymarketBot:
             if checked % 50 == 0:
                 log.info(f"  ... scanned {checked}/{len(tokens_to_scan)} tokens, found {len(self._held_positions)} positions")
 
-        total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
-        log.info(f"Discovery complete: {len(self._held_positions)} positions, est. value ${total_value:.2f}")
-        self._positions_discovered = True
-
     def _manage_positions(self) -> None:
         """Evaluate held positions — sell when profitable or when cash is needed."""
         if not self._held_positions:
@@ -673,6 +742,10 @@ class UnifiedPolymarketBot:
         sells_this_cycle = 0
         for token_id, pos in list(self._held_positions.items()):
             fresh_market = market_by_cid.get(pos.market.condition_id)
+            if not fresh_market:
+                fresh_market = self._client.get_market_by_condition_id(pos.market.condition_id)
+                if fresh_market:
+                    market_by_cid[fresh_market.condition_id] = fresh_market
             if fresh_market:
                 pos.market = fresh_market
                 pos.current_price = (
