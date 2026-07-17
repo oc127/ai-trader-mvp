@@ -559,6 +559,70 @@ class PolymarketClient:
             log.info(f"Data API: {len(all_positions)} positions for {wallet[:12]}...")
         return all_positions
 
+    def get_all_clob_markets(self, max_pages: int = 20) -> list[Market]:
+        """Fetch ALL markets from CLOB API using cursor pagination.
+
+        Unlike the Gamma API (limited to top N), the CLOB endpoint returns
+        every active market when paginated through. Used for position discovery.
+        """
+        client = self._init_clob()
+        all_raw: list[dict] = []
+        cursor = "MA=="  # INITIAL_CURSOR
+        pages = 0
+
+        while cursor != "LTE=" and pages < max_pages:  # LTE= = END_CURSOR
+            self._throttle()
+            try:
+                resp = client.get_simplified_markets(next_cursor=cursor)
+                data = resp.get("data", [])
+                cursor = resp.get("next_cursor", "MA==")
+                all_raw.extend(data)
+                pages += 1
+                log.info(f"CLOB markets page {pages}: {len(data)} markets (total {len(all_raw)})")
+                if not data:
+                    break
+            except Exception as e:
+                log.warning(f"CLOB market pagination failed on page {pages}: {e}")
+                break
+
+        markets: list[Market] = []
+        seen: set[str] = set()
+        for m in all_raw:
+            cid = str(m.get("condition_id", ""))
+            if not cid or cid in seen:
+                continue
+            seen.add(cid)
+
+            tokens = m.get("tokens", [])
+            if not tokens or len(tokens) < 2:
+                continue
+
+            t0 = tokens[0] if isinstance(tokens[0], dict) else {"token_id": str(tokens[0])}
+            t1 = tokens[1] if isinstance(tokens[1], dict) else {"token_id": str(tokens[1])}
+
+            yes_tid = str(t0.get("token_id", ""))
+            no_tid = str(t1.get("token_id", ""))
+            yes_price = float(t0.get("price", 0.5) or 0.5)
+
+            markets.append(Market(
+                condition_id=cid,
+                question=str(m.get("question", "")),
+                slug="",
+                yes_token_id=yes_tid,
+                no_token_id=no_tid,
+                yes_price=yes_price,
+                no_price=1.0 - yes_price,
+                volume=0.0,
+                volume_24h=0.0,
+                liquidity=0.0,
+                end_date=m.get("end_date_iso"),
+                category="",
+                active=bool(m.get("active", True)),
+            ))
+
+        log.info(f"CLOB pagination: {len(markets)} total markets from {pages} pages")
+        return markets
+
     def get_market_by_condition_id(self, condition_id: str) -> Optional[Market]:
         """Look up a single market from Gamma API by condition_id."""
         import requests

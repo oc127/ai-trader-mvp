@@ -694,7 +694,26 @@ class UnifiedPolymarketBot:
             )
 
     def _discover_via_token_scan(self) -> None:
-        """Fallback: scan all known market tokens for non-zero balances."""
+        """Scan ALL market tokens for non-zero balances.
+
+        Uses CLOB SDK pagination to get ALL markets (not just Gamma's top 200),
+        ensuring political and low-volume markets are included.
+        """
+        try:
+            clob_markets = self._client.get_all_clob_markets(max_pages=20)
+            if clob_markets:
+                existing_cids = {m.condition_id for m in (self._all_markets or [])}
+                added = 0
+                for m in clob_markets:
+                    if m.condition_id not in existing_cids:
+                        self._all_markets.append(m)
+                        existing_cids.add(m.condition_id)
+                        added += 1
+                if added:
+                    log.info(f"Added {added} markets from CLOB (total {len(self._all_markets)})")
+        except Exception as e:
+            log.warning(f"CLOB market pagination failed: {e}")
+
         markets = self._all_markets or []
         if not markets:
             try:
