@@ -10,6 +10,7 @@ Both layers share the same risk budget and paper/live executor.
 
 from __future__ import annotations
 
+import math
 import time
 import traceback
 from datetime import datetime, timezone
@@ -696,13 +697,16 @@ class UnifiedPolymarketBot:
             action, reason = self._evaluate_position(pos, balance)
 
             if action == "sell" and sells_this_cycle < 3:
-                sell_price = pos.current_price * 0.99
-                sell_price = max(sell_price, 0.01)
+                sell_price = max(pos.current_price * 0.97, 0.01)
+                sell_shares = math.floor(pos.shares * 100) / 100
+                if sell_shares < 1.0:
+                    del self._held_positions[token_id]
+                    continue
                 log.info(
                     f"SELL POSITION: {pos.outcome.value} {pos.market.question[:40]} | "
-                    f"{pos.shares:.1f} shares @ {sell_price:.3f} | {reason}"
+                    f"{sell_shares:.2f} shares @ {sell_price:.3f} | {reason}"
                 )
-                result = self._place(token_id, Side.SELL, sell_price, pos.shares, pos.market)
+                result = self._place(token_id, Side.SELL, sell_price, sell_shares, pos.market)
                 if result and result.success:
                     self._alert(
                         f"SOLD: {pos.outcome.value} {pos.market.question[:40]}\n"
