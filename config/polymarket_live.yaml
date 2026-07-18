@@ -40,7 +40,7 @@ polymarket:
 
   # ── Global position limits ──
   max_open_positions: 15            # max 15 positions for $200 account
-  min_cash_reserve: 5.0             # always keep $5 cash
+  min_cash_reserve: 15.0            # always keep $15 cash — hard floor
 
   # ── Layer toggles — ALL ON ──
   maker_enabled: true
@@ -58,7 +58,7 @@ polymarket:
 
   # ── Strategy (edge layer) ──
   strategy:
-    min_edge: 0.03
+    min_edge: 0.05
     reversion_size: 0.06
     vol_liq_threshold: 2.0
     extreme_low: 0.20
@@ -66,11 +66,11 @@ polymarket:
 
   # ── Risk management ──
   risk:
-    max_position_usd: 10          # $10 max single position
-    max_total_exposure_usd: 40    # $40 total new positions
+    max_position_usd: 8            # $8 max single position
+    max_total_exposure_usd: 25    # $25 max daily spend (for ~$146 account)
     max_single_market_pct: 0.15   # 15% max in one market
-    max_daily_trades: 20          # max 20 trades/day for $200 account
-    max_daily_loss_usd: 8         # $8 daily stop (4% of account)
+    max_daily_trades: 10          # max 10 trades/day — stop overtrading
+    max_daily_loss_usd: 5         # $5 daily stop (3.5% of account)
     min_kelly: 0.01
     max_kelly: 0.08
     min_edge: 0.03

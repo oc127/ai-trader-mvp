@@ -107,7 +107,10 @@ class UnifiedPolymarketBot:
 
         # global position limits for small accounts
         self._max_open_positions = pm_cfg.get("max_open_positions", 15)
-        self._min_cash_reserve = pm_cfg.get("min_cash_reserve", 5.0)
+        self._min_cash_reserve = pm_cfg.get("min_cash_reserve", 15.0)
+        self._max_daily_trades = pm_cfg.get("risk", {}).get("max_daily_trades", 20)
+        self._daily_spend_usd = 0.0
+        self._max_daily_spend = pm_cfg.get("risk", {}).get("max_total_exposure_usd", 40.0)
 
         # PnL tracking
         self._maker_pnl = 0.0
@@ -212,6 +215,7 @@ class UnifiedPolymarketBot:
             self._copy_pnl = 0.0
             self._state.trades_today = 0
             self._state.errors_today = 0
+            self._daily_spend_usd = 0.0
             self._last_reset_day = today
             log.info(f"Daily reset: {today}")
             self._alert(
@@ -314,14 +318,20 @@ class UnifiedPolymarketBot:
     # ── Position Guard ──
 
     def _can_open_new_position(self, layer: str = "") -> bool:
-        """Check if we should open a new position (global limit + cash reserve)."""
-        total_positions = len(self._edge_positions) + len(self._held_positions)
-        if total_positions >= self._max_open_positions:
-            log.debug(f"Position limit reached ({total_positions}/{self._max_open_positions}), skip {layer}")
-            return False
+        """Hard guard: block new buys when cash is low, trades maxed, or spend exceeded.
+
+        Does NOT rely on position count (discovery is unreliable).
+        Uses cash balance, daily trade count, and daily spend as hard limits.
+        """
         balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
         if balance < self._min_cash_reserve:
-            log.debug(f"Cash reserve too low (${balance:.2f} < ${self._min_cash_reserve}), skip {layer}")
+            log.info(f"BLOCKED {layer}: cash ${balance:.2f} < reserve ${self._min_cash_reserve:.0f}")
+            return False
+        if self._state.trades_today >= self._max_daily_trades:
+            log.info(f"BLOCKED {layer}: {self._state.trades_today} trades today >= limit {self._max_daily_trades}")
+            return False
+        if self._daily_spend_usd >= self._max_daily_spend:
+            log.info(f"BLOCKED {layer}: daily spend ${self._daily_spend_usd:.2f} >= limit ${self._max_daily_spend:.0f}")
             return False
         return True
 
@@ -435,6 +445,7 @@ class UnifiedPolymarketBot:
         result = self._place(token_id, Side.BUY, price, shares, opp.market)
         if result and result.success and result.filled_size > 0:
             self._state.trades_today += 1
+            self._daily_spend_usd += (result.avg_fill_price or price) * result.filled_size
             self._edge_positions[token_id] = _EdgePosition(
                 market=opp.market, outcome=opp.outcome, token_id=token_id,
                 entry_price=result.avg_fill_price or price,
@@ -536,6 +547,7 @@ class UnifiedPolymarketBot:
                     self._arb_pnl += pnl
                     self._risk.record_trade_result(pnl)
                     self._state.trades_today += 2
+                    self._daily_spend_usd += opp.total_cost * filled
                     self._alert(
                         f"ARB FILL: {opp.market.question[:40]}\n"
                         f"ROI: {opp.roi_pct:.2f}% | Net: ${pnl:+.4f}",
@@ -567,6 +579,7 @@ class UnifiedPolymarketBot:
                     self._arb_pnl += pnl
                     self._risk.record_trade_result(pnl)
                     self._state.trades_today += 1
+                    self._daily_spend_usd += price * result.filled_size
                     self._alert(
                         f"SNIPE FILL: {opp.snipe_side} {opp.market.question[:40]}\n"
                         f"@ {price:.3f} | Net: ${pnl:+.4f}",
@@ -630,6 +643,8 @@ class UnifiedPolymarketBot:
                 if result and result.success and result.filled_size > 0:
                     self._copy_trader.record_copy(t.address)
                     self._state.trades_today += 1
+                    if side == Side.BUY:
+                        self._daily_spend_usd += price * result.filled_size
                     self._alert(
                         f"COPY: {t.username or t.address[:8]} {raw_side}\n"
                         f"Size: ${copy_size:.2f} @ {price:.3f}",
@@ -920,6 +935,9 @@ class UnifiedPolymarketBot:
                 log.debug(f"LP reward fetch failed: {e}")
 
     def _quote_market(self, market: Market, balance: float = 0) -> None:
+        if not self._can_open_new_position("maker"):
+            return
+
         cid = market.condition_id
         try:
             book = self._client.get_orderbook(market.yes_token_id, market)
@@ -998,6 +1016,7 @@ class UnifiedPolymarketBot:
                     "BUY", market.yes_token_id, quote.bid_price, bid_result.filled_size,
                 )
                 self._state.trades_today += 1
+                self._daily_spend_usd += quote.bid_price * bid_result.filled_size
                 self._maker_pnl = self._maker.daily_pnl
                 self._alert(f"MAKER BID: {market.question[:40]} @ {quote.bid_price:.3f}", alert_type="trade")
 
@@ -1022,6 +1041,7 @@ class UnifiedPolymarketBot:
                         "BUY", market.no_token_id, no_price, ask_result.filled_size,
                     )
                     self._state.trades_today += 1
+                    self._daily_spend_usd += no_price * ask_result.filled_size
                     self._maker_pnl = self._maker.daily_pnl
                     self._alert(f"MAKER ASK: {market.question[:40]} @ {no_price:.3f}", alert_type="trade")
 
@@ -1129,6 +1149,8 @@ class UnifiedPolymarketBot:
                     info["side"], info["token_id"], info["price"], filled_size,
                 )
                 self._state.trades_today += 1
+                if info["side"] == "BUY":
+                    self._daily_spend_usd += info["price"] * filled_size
                 self._maker_pnl = self._maker.daily_pnl
                 self._committed_usd -= info.get("cost", 0)
                 log.info(
@@ -1240,6 +1262,8 @@ class UnifiedPolymarketBot:
         dd = risk_status['drawdown_pct']
         sm = risk_status['size_multiplier']
         log.info(f"  Risk:        DD={dd:.1f}% | size_mult={sm:.2f}")
+        log.info(f"  Trades:      {self._state.trades_today}/{self._max_daily_trades}")
+        log.info(f"  Spent today: ${self._daily_spend_usd:.2f}/${self._max_daily_spend:.0f}")
         log.info(f"  Cycles:      {self._state.cycle_count}")
         log.info(f"  Errors:      {self._state.errors_today}")
         log.info("─" * 55)
