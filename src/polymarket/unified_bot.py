@@ -108,9 +108,10 @@ class UnifiedPolymarketBot:
         # global position limits for small accounts
         self._max_open_positions = pm_cfg.get("max_open_positions", 15)
         self._min_cash_reserve = pm_cfg.get("min_cash_reserve", 15.0)
-        self._max_daily_trades = pm_cfg.get("risk", {}).get("max_daily_trades", 20)
+        self._max_daily_trades = pm_cfg.get("risk", {}).get("max_daily_trades", 10)
         self._daily_spend_usd = 0.0
-        self._max_daily_spend = pm_cfg.get("risk", {}).get("max_total_exposure_usd", 40.0)
+        self._max_daily_spend = pm_cfg.get("risk", {}).get("max_total_exposure_usd", 25.0)
+        self._pessimistic_balance: float | None = None
 
         # PnL tracking
         self._maker_pnl = 0.0
@@ -238,14 +239,16 @@ class UnifiedPolymarketBot:
         else:
             self._pause_alerted = False
 
-        # periodic market scan
+        # periodic market scan + balance resync
         if now - self._last_scan_ts >= self._scan_interval:
             self._scan_markets()
+            api_bal = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+            self._pessimistic_balance = api_bal
             self._last_scan_ts = now
 
         # Layer 1: market making quotes (fast)
         if self._maker_enabled and not self._maker.is_paused:
-            cycle_balance = self._client.get_balance() if not self._paper_mode else (self._paper.get_balance() if self._paper else 0)
+            cycle_balance = self._get_effective_balance()
             for market in self._active_markets:
                 try:
                     self._quote_market(market, cycle_balance)
@@ -317,21 +320,24 @@ class UnifiedPolymarketBot:
 
     # ── Position Guard ──
 
-    def _can_open_new_position(self, layer: str = "") -> bool:
-        """Hard guard: block new buys when cash is low, trades maxed, or spend exceeded.
+    def _get_effective_balance(self) -> float:
+        """Get pessimistic balance — the LOWER of API balance and our internal tracker."""
+        api_balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+        if self._pessimistic_balance is None:
+            self._pessimistic_balance = api_balance
+        return min(api_balance, self._pessimistic_balance)
 
-        Does NOT rely on position count (discovery is unreliable).
-        Uses cash balance, daily trade count, and daily spend as hard limits.
-        """
-        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+    def _can_open_new_position(self, layer: str = "") -> bool:
+        """Hard guard: block new buys when cash is low, trades maxed, or spend exceeded."""
+        balance = self._get_effective_balance()
         if balance < self._min_cash_reserve:
-            log.info(f"BLOCKED {layer}: cash ${balance:.2f} < reserve ${self._min_cash_reserve:.0f}")
+            log.info(f"BLOCKED {layer}: effective cash ${balance:.2f} < reserve ${self._min_cash_reserve:.0f}")
             return False
         if self._state.trades_today >= self._max_daily_trades:
-            log.info(f"BLOCKED {layer}: {self._state.trades_today} trades today >= limit {self._max_daily_trades}")
+            log.info(f"BLOCKED {layer}: {self._state.trades_today} trades >= limit {self._max_daily_trades}")
             return False
         if self._daily_spend_usd >= self._max_daily_spend:
-            log.info(f"BLOCKED {layer}: daily spend ${self._daily_spend_usd:.2f} >= limit ${self._max_daily_spend:.0f}")
+            log.info(f"BLOCKED {layer}: spent ${self._daily_spend_usd:.2f} >= limit ${self._max_daily_spend:.0f}")
             return False
         return True
 
@@ -368,7 +374,7 @@ class UnifiedPolymarketBot:
             if token_id in self._edge_positions:
                 continue
 
-            balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+            balance = self._get_effective_balance()
             exposure = self._get_edge_exposure()
             check = self._risk.check_opportunity(opp, self._state, exposure, balance)
             if not check.passed:
@@ -412,7 +418,7 @@ class UnifiedPolymarketBot:
         if not self._can_open_new_position("edge"):
             return False
 
-        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+        balance = self._get_effective_balance()
         exposure = self._get_edge_exposure()
         size = self._risk.size_position(opp, balance, exposure)
         if size <= 0:
@@ -514,7 +520,7 @@ class UnifiedPolymarketBot:
         if not opps:
             return
 
-        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+        balance = self._get_effective_balance()
 
         for opp in opps[:3]:
             if opp.arb_type == "complete_set":
@@ -596,7 +602,7 @@ class UnifiedPolymarketBot:
         qualified = self._copy_trader.filter_traders(traders)
         self._copy_trader.update_followed(qualified)
 
-        balance = self._paper.get_balance() if self._paper_mode and self._paper else self._client.get_balance()
+        balance = self._get_effective_balance()
 
         valid_tokens: set[str] = set()
         for m in self._active_markets:
@@ -1193,6 +1199,18 @@ class UnifiedPolymarketBot:
     # ── Shared ──
 
     def _place(self, token_id: str, side: Side, price: float, size: float, market: Optional[Market] = None):
+        if side == Side.BUY:
+            cost = price * size
+            effective = self._get_effective_balance()
+            if effective - cost < self._min_cash_reserve:
+                log.info(f"PLACE BLOCKED: ${effective:.2f} - ${cost:.2f} = ${effective - cost:.2f} < reserve ${self._min_cash_reserve:.0f}")
+                return None
+            if self._daily_spend_usd + cost > self._max_daily_spend:
+                log.info(f"PLACE BLOCKED: spend ${self._daily_spend_usd:.2f} + ${cost:.2f} > limit ${self._max_daily_spend:.0f}")
+                return None
+            if self._pessimistic_balance is not None:
+                self._pessimistic_balance -= cost
+
         if self._paper_mode and self._paper:
             return self._paper.place_order(token_id, side, price, size, market)
         result = self._client.place_order(token_id, side, price, size)
@@ -1201,6 +1219,13 @@ class UnifiedPolymarketBot:
             self._state.halted = True
             self._state.halt_reason = "Geoblock: trading restricted in your region"
             self._alert("GEOBLOCK: Bot halted — trading restricted. Check VPN.", alert_type="error", level="error")
+        if side == Side.BUY and result and not result.success:
+            if self._pessimistic_balance is not None:
+                self._pessimistic_balance += cost
+        if side == Side.SELL and result and result.success and result.filled_size > 0:
+            fill_value = (result.avg_fill_price or price) * result.filled_size
+            if self._pessimistic_balance is not None:
+                self._pessimistic_balance += fill_value
         return result
 
     def _get_current_prices(self) -> dict[str, float]:
@@ -1245,7 +1270,8 @@ class UnifiedPolymarketBot:
         log.info("─" * 55)
         log.info(f"STATUS REPORT (uptime {uptime:.1f}h)")
         log.info(f"  Mode:        {'PAPER' if self._paper_mode else 'LIVE'}")
-        log.info(f"  Cash:        ${bal:.2f}")
+        eff_bal = self._pessimistic_balance if self._pessimistic_balance is not None else bal
+        log.info(f"  Cash:        ${bal:.2f} (effective: ${eff_bal:.2f})")
         log.info(f"  Positions:   ${position_value:.2f} ({len(self._held_positions)} held)")
         log.info(f"  Portfolio:   ${equity:.2f}")
         log.info(f"  Total PnL:   ${total_pnl:+.4f}")
