@@ -1098,10 +1098,12 @@ class UnifiedPolymarketBot:
                         inv.no_token_id, "SELL", order["token_id"],
                         0, result.filled_size,
                     )
-                elif "not enough balance" in str(result.error):
-                    log.warning(f"Clearing phantom inventory for {inv.question[:40]}")
-                    inv.yes_shares = 0.0
-                    inv.no_shares = 0.0
+                elif result.error:
+                    err = str(result.error).lower()
+                    if "not enough balance" in err or "invalid token" in err:
+                        log.warning(f"Clearing phantom inventory for {inv.question[:40]}: {err[:60]}")
+                        inv.yes_shares = 0.0
+                        inv.no_shares = 0.0
 
     def _merge_positions(self) -> None:
         """Merge YES+NO positions back to USDC to free capital."""
