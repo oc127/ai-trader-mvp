@@ -12,6 +12,11 @@ Requires: ODDS_API_KEY env var (free at https://the-odds-api.com/)
 import argparse
 import os
 import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import requests
 
