@@ -45,7 +45,7 @@ polymarket:
   # ── Layer toggles — ALL ON ──
   maker_enabled: true
   edge_enabled: true
-  copy_enabled: false
+  copy_enabled: true
 
   # ── Scanner ──
   scanner:
@@ -106,6 +106,7 @@ polymarket:
     scan_interval: 60.0
     trade_delay: 5.0
     cooldown_per_trader: 300.0
+    copy_min_price: 0.93              # only copy snipe trades (93%+), skip directional bets
     manual_follow:
       - "0x204f72f35326db932158cba6adff0b9a1da95e14"  # swisstony — $21.8M PnL, 100+ positions, sports sniper
 

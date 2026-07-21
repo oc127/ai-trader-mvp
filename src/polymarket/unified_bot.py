@@ -728,6 +728,11 @@ class UnifiedPolymarketBot:
 
                 if price <= 0:
                     continue
+
+                copy_min = self._cfg.get("polymarket", {}).get("copy_trading", {}).get("copy_min_price", 0.93)
+                if side == Side.BUY and price < copy_min:
+                    log.debug(f"Copy skip: price {price:.3f} < {copy_min} (not a snipe)")
+                    continue
                 copy_shares = max(copy_size / price, 5.0)
                 copy_shares = round(copy_shares, 2)
 
