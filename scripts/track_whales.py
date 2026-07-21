@@ -14,9 +14,7 @@ import requests
 DATA_API = "https://data-api.polymarket.com"
 
 WHALES = {
-    "0x204f72f35326db932158cba6adff0b9a1da95e14": "swisstony (#1)",
-    "0x09b428f7c2b469786286214aa5c90dd9015f7320": "#2",
-    "0x476e1322d1a412fa0325527b8c3bc5e707b1396d": "#3",
+    "0x204f72f35326db932158cba6adff0b9a1da95e14": "swisstony",
 }
 
 
