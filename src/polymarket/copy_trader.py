@@ -56,10 +56,12 @@ class CopyConfig:
     scan_interval: float = 120.0    # check leaderboard every 2 min
     trade_delay: float = 5.0        # wait 5s before copying (avoid front-run)
     cooldown_per_trader: float = 300.0  # 5 min cooldown per trader
+    manual_follow: list[str] | None = None  # always-follow addresses
 
 
 def load_copy_config(cfg: dict) -> CopyConfig:
     cc = cfg.get("polymarket", {}).get("copy_trading", {})
+    manual = cc.get("manual_follow", [])
     return CopyConfig(
         min_pnl=cc.get("min_pnl", 500.0),
         min_win_rate=cc.get("min_win_rate", 0.60),
@@ -73,6 +75,7 @@ def load_copy_config(cfg: dict) -> CopyConfig:
         scan_interval=cc.get("scan_interval", 120.0),
         trade_delay=cc.get("trade_delay", 5.0),
         cooldown_per_trader=cc.get("cooldown_per_trader", 300.0),
+        manual_follow=manual if manual else None,
     )
 
 
@@ -120,12 +123,29 @@ class CopyTrader:
             log.error(f"Failed to fetch leaderboard: {e}")
             return []
 
+    def get_manual_profiles(self) -> list[TraderProfile]:
+        """Return manual follow addresses as TraderProfiles (always included)."""
+        if not self._config.manual_follow:
+            return []
+        return [
+            TraderProfile(address=addr, username=f"manual:{addr[:8]}", score=999)
+            for addr in self._config.manual_follow
+        ]
+
     def filter_traders(self, traders: list[TraderProfile]) -> list[TraderProfile]:
         """Filter to only follow traders meeting strict criteria."""
         cfg = self._config
         qualified: list[TraderProfile] = []
 
+        # Manual follow addresses always included first
+        manual_addrs = set()
+        for p in self.get_manual_profiles():
+            qualified.append(p)
+            manual_addrs.add(p.address.lower())
+
         for t in traders:
+            if t.address.lower() in manual_addrs:
+                continue
             if t.pnl < cfg.min_pnl:
                 continue
             if t.win_rate and t.win_rate < cfg.min_win_rate:
@@ -133,7 +153,6 @@ class CopyTrader:
             if t.num_trades and t.num_trades < cfg.min_trades:
                 continue
 
-            # score from available data: PnL dominates, volume as tiebreaker
             pnl_score = min(t.pnl / 1000, 10) * 30
             vol_score = min(t.volume / 100_000, 5) * 10 if t.volume > 0 else 0
             wr_score = t.win_rate * 30 if t.win_rate else 0
@@ -147,10 +166,10 @@ class CopyTrader:
         top = qualified[:cfg.max_traders_to_follow]
 
         if top:
+            manual_count = sum(1 for t in top if t.address.lower() in manual_addrs)
             log.info(
-                f"Copy trader: {len(top)} qualified from {len(traders)} "
-                f"(best: {top[0].username or top[0].address[:8]} "
-                f"PnL=${top[0].pnl:,.0f} vol=${top[0].volume:,.0f})"
+                f"Copy trader: {len(top)} followed ({manual_count} manual) from {len(traders)} "
+                f"(best: {top[0].username or top[0].address[:8]})"
             )
 
         return top

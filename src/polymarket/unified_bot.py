@@ -598,13 +598,9 @@ class UnifiedPolymarketBot:
         if not opps:
             return
 
-        # Filter snipes through quality check — don't snipe random sports
-        opps = [
-            o for o in opps
-            if o.arb_type == "complete_set" or self._is_quality_market(o.market, "snipe")
-        ]
-        if not opps:
-            return
+        # Complete-set arbs and snipes are math-based — allow ALL markets.
+        # High price (93%+) is itself the quality signal for snipes.
+        # (Quality filter only applies to edge/mean-reversion trades.)
 
         balance = self._get_effective_balance()
 
@@ -646,7 +642,6 @@ class UnifiedPolymarketBot:
                         alert_type="arb",
                     )
             elif opp.arb_type == "resolution_snipe":
-                usd_size = min(20.0, self._arb_engine.config.max_arb_size_usd, balance * 0.50)
                 token_id = (
                     opp.market.yes_token_id if opp.snipe_side == "YES"
                     else opp.market.no_token_id
@@ -654,6 +649,16 @@ class UnifiedPolymarketBot:
                 price = opp.yes_cost if opp.snipe_side == "YES" else opp.no_cost
                 if price <= 0:
                     continue
+
+                # Higher-confidence snipes (97%+) get bigger sizing
+                max_size = self._arb_engine.config.max_arb_size_usd
+                if price >= 0.97:
+                    usd_size = min(max_size, balance * 0.50)
+                elif price >= 0.95:
+                    usd_size = min(max_size * 0.7, balance * 0.40)
+                else:
+                    usd_size = min(max_size * 0.5, balance * 0.30)
+
                 shares = max(usd_size / price, 5.0)
                 shares = round(shares, 2)
                 cost = shares * price
@@ -682,16 +687,18 @@ class UnifiedPolymarketBot:
 
     def _copy_cycle(self) -> None:
         traders = self._copy_trader.fetch_leaderboard()
-        if not traders:
+        # Even if leaderboard is empty, manual follows still work
+        qualified = self._copy_trader.filter_traders(traders or [])
+        if not qualified:
             return
-
-        qualified = self._copy_trader.filter_traders(traders)
         self._copy_trader.update_followed(qualified)
 
         balance = self._get_effective_balance()
 
+        # Use all known markets for token validation (not just maker-selected)
+        all_mkts = self._all_markets or self._active_markets
         valid_tokens: set[str] = set()
-        for m in self._active_markets:
+        for m in all_mkts:
             valid_tokens.add(m.yes_token_id)
             valid_tokens.add(m.no_token_id)
 

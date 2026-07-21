@@ -106,6 +106,8 @@ polymarket:
     scan_interval: 60.0
     trade_delay: 5.0
     cooldown_per_trader: 300.0
+    manual_follow:
+      - "0x204f72f35326db932158cba6adff0b9a1da95e14"  # swisstony — $21.8M PnL
 
 smart_bot:
   cycle_interval_seconds: 15
