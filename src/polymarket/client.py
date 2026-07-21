@@ -89,7 +89,18 @@ class PolymarketClient:
                     self._make_api_creds(self._api_key, self._api_secret, self._api_passphrase)
                 )
             else:
-                creds = self._clob_client.create_or_derive_api_key()
+                creds = None
+                for attempt in range(3):
+                    try:
+                        creds = self._clob_client.create_or_derive_api_key()
+                        break
+                    except Exception as e:
+                        log.warning(f"API key creation attempt {attempt + 1}/3 failed: {e}")
+                        if attempt < 2:
+                            import time as _time
+                            _time.sleep(5 * (attempt + 1))
+                if creds is None:
+                    raise RuntimeError("Failed to create API key after 3 attempts")
                 if isinstance(creds, dict):
                     api_key = creds.get("apiKey", creds.get("api_key", ""))
                     api_secret = creds.get("secret", creds.get("api_secret", ""))
@@ -110,6 +121,8 @@ class PolymarketClient:
             raise
         except Exception:
             log.exception("Failed to init CLOB V2 client")
+            self._clob_client = None
+            raise
             raise
 
     def _throttle(self) -> None:
@@ -368,6 +381,9 @@ class PolymarketClient:
             if "geoblock" in err.lower() or "restricted" in err.lower():
                 log.error(f"GEOBLOCK: trading restricted — check VPN/network")
                 self._geoblock_detected = True
+            elif "api credentials" in err.lower():
+                log.warning("API credentials expired — forcing re-init on next call")
+                self._clob_client = None
             else:
                 log.error(f"Order failed: {e}")
             return TradeResult(success=False, error=err)
@@ -401,8 +417,13 @@ class PolymarketClient:
             log.info(f"Market order: {side.value} ${amount} token={token_id[:12]}... id={order_id}")
             return TradeResult(success=True, order_id=str(order_id))
         except Exception as e:
-            log.error(f"Market order failed: {e}")
-            return TradeResult(success=False, error=str(e))
+            err = str(e)
+            if "api credentials" in err.lower():
+                log.warning("API credentials expired — forcing re-init on next call")
+                self._clob_client = None
+            else:
+                log.error(f"Market order failed: {e}")
+            return TradeResult(success=False, error=err)
 
     def cancel_order(self, order_id: str) -> bool:
         client = self._init_clob()
