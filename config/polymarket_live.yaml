@@ -124,6 +124,15 @@ ai_edge:
   max_markets_per_cycle: 5
   analysis_cache_seconds: 900
 
+# ── Odds Comparison Engine ──
+odds_engine:
+  min_edge: 0.05                    # 5% minimum edge vs bookmakers
+  bookmakers:
+    - pinnacle                      # sharpest odds in the world
+    - bet365
+  match_threshold: 0.55             # fuzzy match confidence for event matching
+  cache_ttl: 300                    # cache odds for 5 min
+
 logging:
   level: INFO
   format: text
