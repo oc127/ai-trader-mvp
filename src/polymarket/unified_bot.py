@@ -11,6 +11,7 @@ Both layers share the same risk budget and paper/live executor.
 from __future__ import annotations
 
 import math
+import re
 import time
 import traceback
 from datetime import datetime, timezone
@@ -341,6 +342,78 @@ class UnifiedPolymarketBot:
             return False
         return True
 
+    # ── Market Quality Filter ──
+
+    # Sports/esports patterns — these markets are efficiently priced by oddsmakers
+    _JUNK_PATTERNS = re.compile(
+        r"Exact Score:|O/U \d|Over/Under|"
+        r"Counter-Strike|Dota 2|League of Legends|Valorant|"
+        r"Set \d+ Game \d+|"
+        r"1st Half|2nd Half|1st Set|2nd Set|"
+        r"Total Goals|Total Points|Total Maps|"
+        r"Handicap [+-]",
+        re.IGNORECASE,
+    )
+
+    # Daily sports outcomes — "Will X win on 2026-07-21?"
+    _DAILY_SPORTS = re.compile(
+        r"win on 20\d{2}-\d{2}-\d{2}\??$",
+        re.IGNORECASE,
+    )
+
+    # Sports venue/tournament prefixes — "Segovia:", "Prague Open:", etc.
+    _SPORTS_VENUE = re.compile(
+        r"^(?:Segovia|Prague Open|Estoril Open|Palermo|Wimbledon|Roland Garros|"
+        r"US Open|Australian Open|ATP|WTA|UFC|NBA|NFL|NHL|MLB|MLS|"
+        r"Premier League|La Liga|Serie A|Bundesliga|Ligue 1|"
+        r"Champions League|Europa League|Copa America|Euro 20\d{2})\b",
+        re.IGNORECASE,
+    )
+
+    # Individual match pattern: "X vs Y" or "X vs. Y" (sports matches)
+    _VS_MATCH = re.compile(
+        r"\b\w+\s+vs\.?\s+\w+",
+        re.IGNORECASE,
+    )
+
+    def _is_quality_market(self, market: Market, layer: str = "edge") -> bool:
+        """Filter out markets where we have zero informational edge.
+
+        Sports exact scores, esports, daily match outcomes — these are
+        efficiently priced by oddsmakers. Mean reversion doesn't work.
+        """
+        q = market.question
+
+        if self._JUNK_PATTERNS.search(q):
+            return False
+
+        if self._DAILY_SPORTS.search(q):
+            return False
+
+        if self._SPORTS_VENUE.search(q):
+            return False
+
+        # "X vs Y" pattern — block for edge trades (likely sports)
+        # but allow for snipes (if price > 93%, outcome may be decided)
+        if layer == "edge" and self._VS_MATCH.search(q):
+            return False
+
+        # Skip markets ending within 24 hours for edge bets (not snipes)
+        if layer == "edge" and market.end_date:
+            try:
+                end = datetime.fromisoformat(market.end_date.replace("Z", "+00:00"))
+                hours_left = (end - datetime.now(timezone.utc)).total_seconds() / 3600
+                if hours_left < 24:
+                    return False
+            except (ValueError, TypeError):
+                pass
+
+        # Very thin markets (< $2K liquidity) are too risky for edge bets
+        if layer == "edge" and market.liquidity < 2000:
+            return False
+
+        return True
+
     # ── Slow Cycle (every 30s) — edge detection ──
 
     def _slow_cycle(self) -> None:
@@ -388,16 +461,18 @@ class UnifiedPolymarketBot:
         self._check_edge_exits()
 
     def _evaluate_edge(self, markets: list[Market]) -> list[Opportunity]:
+        quality_markets = [m for m in markets if self._is_quality_market(m, "edge")]
+
         all_opps: list[Opportunity] = []
 
         try:
-            mr_opps = self._mean_reversion.evaluate(markets)
+            mr_opps = self._mean_reversion.evaluate(quality_markets)
             all_opps.extend(mr_opps)
         except Exception as e:
             log.error(f"Mean reversion error: {e}")
 
         try:
-            edge_opps = self._edge_strategy.evaluate(markets)
+            edge_opps = self._edge_strategy.evaluate(quality_markets)
             all_opps.extend(edge_opps)
         except Exception as e:
             log.error(f"Edge strategy error: {e}")
@@ -411,7 +486,10 @@ class UnifiedPolymarketBot:
 
         ranked = sorted(best.values(), key=lambda o: o.edge * o.kelly_fraction, reverse=True)
         if ranked:
-            log.info(f"Edge scan: {len(all_opps)} raw → {len(ranked)} unique | best edge={ranked[0].edge:.1%}")
+            log.info(
+                f"Edge scan: {len(markets)} markets → {len(quality_markets)} quality "
+                f"→ {len(all_opps)} raw → {len(ranked)} unique | best edge={ranked[0].edge:.1%}"
+            )
         return ranked
 
     def _execute_edge_trade(self, opp: Opportunity) -> bool:
@@ -517,6 +595,14 @@ class UnifiedPolymarketBot:
             return
 
         opps = self._arb_engine.scan_all(markets)
+        if not opps:
+            return
+
+        # Filter snipes through quality check — don't snipe random sports
+        opps = [
+            o for o in opps
+            if o.arb_type == "complete_set" or self._is_quality_market(o.market, "snipe")
+        ]
         if not opps:
             return
 

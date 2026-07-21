@@ -49,7 +49,7 @@ polymarket:
 
   # ── Scanner ──
   scanner:
-    min_edge: 0.03
+    min_edge: 0.05                    # scanner min edge (was 0.03)
     min_volume: 5000
     min_liquidity: 5000
     max_price: 0.95
@@ -58,11 +58,11 @@ polymarket:
 
   # ── Strategy (edge layer) ──
   strategy:
-    min_edge: 0.05
-    reversion_size: 0.06
-    vol_liq_threshold: 2.0
-    extreme_low: 0.20
-    extreme_high: 0.80
+    min_edge: 0.08                  # 8% minimum edge (was 5% — too many false signals)
+    reversion_size: 0.08            # 8% reversion target (was 6%)
+    vol_liq_threshold: 1.5          # stricter thin-market filter (was 2.0)
+    extreme_low: 0.15               # only trade below 15% (was 20%)
+    extreme_high: 0.85              # only trade above 85% (was 80%)
 
   # ── Risk management ──
   risk:
@@ -73,7 +73,7 @@ polymarket:
     max_daily_loss_usd: 5         # $5 daily stop (3.5% of account)
     min_kelly: 0.01
     max_kelly: 0.08
-    min_edge: 0.03
+    min_edge: 0.05                  # risk layer min edge (was 0.03)
     min_confidence: "low"
     max_errors_before_halt: 5
     max_monthly_loss_usd: 25      # $25 monthly cap
@@ -90,7 +90,7 @@ polymarket:
     max_arb_size_usd: 10.0
     min_liquidity: 5000
     min_volume: 2000
-    snipe_min_price: 0.90
+    snipe_min_price: 0.93             # higher threshold (was 0.90) — only snipe near-certain
     snipe_max_price: 0.995
 
   # ── Copy Trading ──
@@ -110,8 +110,8 @@ polymarket:
 smart_bot:
   cycle_interval_seconds: 15
   scan_interval_seconds: 120
-  max_trades_per_cycle: 2
-  position_timeout_seconds: 1800
+  max_trades_per_cycle: 1             # only 1 edge trade per cycle (was 2)
+  position_timeout_seconds: 3600      # hold edge positions longer (was 1800)
   stop_loss_multiplier: 1.5
 
 ai_edge:

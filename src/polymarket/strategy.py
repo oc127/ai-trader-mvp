@@ -118,17 +118,28 @@ class MeanReversionStrategy(PMStrategy):
             if vol_liq >= self._vol_liq_threshold:
                 continue
 
+            # Require minimum liquidity — illiquid markets can't be exited
+            if market.liquidity < 3000:
+                continue
+
             yes_price = market.yes_price
 
+            # Scale reversion size by how extreme the price is:
+            # more extreme = larger expected reversion, but also riskier
             if self._extreme_low >= yes_price > 0.05:
-                model_yes = yes_price + self._reversion_size
+                # Deeper mispricing → larger potential reversion
+                depth = (self._extreme_low - yes_price) / self._extreme_low
+                reversion = self._reversion_size * (1.0 + depth)
+                model_yes = yes_price + reversion
                 edge = model_yes - yes_price
                 if edge >= self._min_edge:
                     opp = self._make_opp(market, Outcome.YES, model_yes, yes_price, edge)
                     if opp:
                         opps.append(opp)
             elif yes_price > self._extreme_high and yes_price < 0.95:
-                model_no = (1.0 - yes_price) + self._reversion_size
+                depth = (yes_price - self._extreme_high) / (1.0 - self._extreme_high)
+                reversion = self._reversion_size * (1.0 + depth)
+                model_no = (1.0 - yes_price) + reversion
                 no_price = 1.0 - yes_price
                 edge = model_no - no_price
                 opp = self._make_opp(market, Outcome.NO, model_no, no_price, edge)

@@ -90,30 +90,40 @@ class MarketScanner:
         return opps
 
     def _heuristic_prob(self, market: Market) -> Optional[float]:
-        """Simple heuristic: flag markets where price implies extreme probability
-        but volume/liquidity ratio suggests the price may be stale or manipulated.
+        """Heuristic edge detection for thin markets at extreme prices.
+
+        Only fires on markets with very low volume-to-liquidity ratio
+        (suggesting stale or manipulated pricing) AND sufficient liquidity
+        (so we can exit the position).
 
         Returns None if no actionable signal.
         """
         yes_price = market.yes_price
 
-        # volume/liquidity ratio — low ratio = thin market, potentially mispriced
-        if market.liquidity > 0:
-            vol_liq = market.volume / market.liquidity
-        else:
+        if market.liquidity <= 0:
             return None
 
-        # high-volume markets with prices near 50/50 are well-priced, skip
-        if 0.40 <= yes_price <= 0.60 and vol_liq > 5:
+        vol_liq = market.volume / market.liquidity
+
+        # Well-priced markets: high volume near 50/50 — skip
+        if 0.35 <= yes_price <= 0.65 and vol_liq > 3:
             return None
 
-        # thin markets at extreme prices might be mispriced
-        if vol_liq < 2 and (yes_price < 0.20 or yes_price > 0.80):
-            # slight mean-reversion bias
-            if yes_price < 0.20:
-                return yes_price + 0.08  # think it's higher than market says
-            if yes_price > 0.80:
-                return yes_price - 0.08  # think it's lower than market says
+        # Need minimum liquidity to enter/exit safely
+        if market.liquidity < 5000:
+            return None
+
+        # Only fire on VERY thin markets (vol/liq < 1.5) at extreme prices
+        if vol_liq < 1.5 and (yes_price < 0.15 or yes_price > 0.85):
+            # Scale reversion by how extreme the price is
+            if yes_price < 0.15:
+                depth = (0.15 - yes_price) / 0.15
+                reversion = 0.08 + 0.07 * depth
+                return yes_price + reversion
+            if yes_price > 0.85:
+                depth = (yes_price - 0.85) / 0.15
+                reversion = 0.08 + 0.07 * depth
+                return yes_price - reversion
 
         return None
 
