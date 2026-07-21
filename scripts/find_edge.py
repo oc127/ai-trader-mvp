@@ -28,11 +28,18 @@ SPORT_GROUPS = {
     "soccer": [
         "soccer_epl", "soccer_spain_la_liga", "soccer_italy_serie_a",
         "soccer_germany_bundesliga", "soccer_france_ligue_one",
-        "soccer_uefa_champs_league", "soccer_uefa_europa_league",
-        "soccer_brazil_serie_a", "soccer_mls",
+        "soccer_uefa_champs_league_qualification",
+        "soccer_brazil_campeonato", "soccer_brazil_serie_b",
+        "soccer_usa_mls", "soccer_mexico_ligamx",
         "soccer_sweden_allsvenskan", "soccer_korea_kleague1",
         "soccer_denmark_superliga", "soccer_norway_eliteserien",
         "soccer_finland_veikkausliiga",
+        "soccer_argentina_primera_division", "soccer_chile_campeonato",
+        "soccer_netherlands_eredivisie", "soccer_belgium_first_div",
+        "soccer_austria_bundesliga", "soccer_switzerland_superleague",
+        "soccer_poland_ekstraklasa", "soccer_greece_super_league",
+        "soccer_spl", "soccer_league_of_ireland",
+        "soccer_conmebol_copa_libertadores", "soccer_conmebol_copa_sudamericana",
     ],
     "tennis": [
         "tennis_atp_french_open", "tennis_atp_us_open", "tennis_atp_wimbledon",
@@ -93,8 +100,31 @@ def fetch_polymarket_sports() -> list[dict]:
     """Fetch active sports markets from Polymarket."""
     try:
         all_markets = []
+
+        # Fetch via events endpoint (better coverage, includes sub-markets)
+        for tag in ["sports", "soccer", "football", "basketball", "baseball",
+                     "tennis", "hockey", "mma", "boxing", "cricket"]:
+            try:
+                resp = requests.get(
+                    f"{GAMMA_API}/markets",
+                    params={
+                        "active": "true",
+                        "closed": "false",
+                        "limit": 100,
+                        "tag": tag,
+                    },
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    batch = resp.json()
+                    if batch:
+                        all_markets.extend(batch)
+            except Exception:
+                pass
+
+        # Also fetch by keyword patterns (catch markets not tagged)
         offset = 0
-        while True:
+        while offset <= 1000:
             resp = requests.get(
                 f"{GAMMA_API}/markets",
                 params={
@@ -113,21 +143,31 @@ def fetch_polymarket_sports() -> list[dict]:
             if len(batch) < 100:
                 break
             offset += 100
-            if offset > 500:
-                break
+
+        # Deduplicate by conditionId
+        seen = set()
+        unique = []
+        for m in all_markets:
+            cid = m.get("conditionId", m.get("condition_id", id(m)))
+            if cid not in seen:
+                seen.add(cid)
+                unique.append(m)
 
         sports_keywords = [
             "win on 20", "vs.", "vs ", "O/U ", "Over/Under",
             "Spread:", "draw", "goals", "points", "sets",
             "ATP", "WTA", "UFC", "NBA", "NFL", "NHL", "MLB", "MLS",
             "Premier League", "La Liga", "Serie A", "Bundesliga",
-            "Champions League", "WNBA",
+            "Champions League", "WNBA", "K League", "Allsvenskan",
+            "Eliteserien", "Superliga", "Ligue 1", "Copa",
+            "Liga MX", "Eredivisie", "Ekstraklasa",
         ]
 
         sports_markets = []
-        for m in all_markets:
+        for m in unique:
             q = m.get("question", "")
-            if any(kw.lower() in q.lower() for kw in sports_keywords):
+            tags = str(m.get("tags", "")).lower()
+            if any(kw.lower() in q.lower() for kw in sports_keywords) or "sport" in tags:
                 sports_markets.append(m)
 
         return sports_markets

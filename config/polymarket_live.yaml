@@ -124,9 +124,11 @@ ai_edge:
   max_markets_per_cycle: 5
   analysis_cache_seconds: 900
 
-# ── Odds Comparison Engine ──
+# ── Odds Comparison Engine (Layer 5) ──
 odds_engine:
+  enabled: true
   min_edge: 0.05                    # 5% minimum edge vs bookmakers
+  scan_interval: 300                # check every 5 min
   bookmakers:
     - pinnacle                      # sharpest odds in the world
     - bet365

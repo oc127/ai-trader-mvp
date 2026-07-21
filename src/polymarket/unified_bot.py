@@ -22,6 +22,7 @@ from src.monitor.alerts import AlertManager
 from src.polymarket.arbitrage import ArbitrageEngine
 from src.polymarket.client import PolymarketClient
 from src.polymarket.copy_trader import CopyTrader
+from src.polymarket.odds_engine import OddsEngine
 from src.polymarket.market_maker import HighFreqMarketMaker, QuotePair
 from src.polymarket.paper import PaperExecutor
 from src.polymarket.risk import PolymarketRiskManager
@@ -32,11 +33,12 @@ log = get_logger(__name__)
 
 
 class UnifiedPolymarketBot:
-    """Four-layer bot:
+    """Five-layer bot:
     Layer 1 (maker, 5s): Quote both sides, earn spread, auto-flatten stale inventory
     Layer 2 (edge, 30s): AI + mean reversion find mispriced markets, directional bets
     Layer 3 (arb, 30s): Complete-set arbitrage + resolution sniping
     Layer 4 (copy, 120s): Smart money copy trading — mirror top performers
+    Layer 5 (odds, 300s): Compare bookmaker odds vs Polymarket — find mispriced sports markets
     """
 
     def __init__(self, cfg: dict, ai_analyzer=None) -> None:
@@ -86,6 +88,13 @@ class UnifiedPolymarketBot:
         # layer 4: copy trading
         self._copy_trader = CopyTrader(cfg)
         self._last_copy_scan_ts = 0.0
+
+        # layer 5: odds comparison
+        self._odds_engine = OddsEngine(cfg)
+        self._odds_enabled = cfg.get("odds_engine", {}).get("enabled", False)
+        self._odds_interval = cfg.get("odds_engine", {}).get("scan_interval", 300.0)
+        self._last_odds_scan_ts = 0.0
+        self._odds_pnl = 0.0
 
         # shared state
         self._state = BotState()
@@ -141,6 +150,8 @@ class UnifiedPolymarketBot:
             layers.append("arb")
         if self._copy_enabled:
             layers.append("copy")
+        if self._odds_enabled:
+            layers.append("odds")
         log.info(
             f"UnifiedBot initialized: mode={'PAPER' if self._paper_mode else 'LIVE'}, "
             f"layers=[{', '.join(layers)}], fast={self._fast_interval}s, slow={self._slow_interval}s"
@@ -157,6 +168,7 @@ class UnifiedPolymarketBot:
         log.info(f"Layer 3 (Arb):    {'ON' if self._arb_enabled else 'OFF'} — {self._slow_interval}s cycle")
         copy_int = self._copy_trader.config.scan_interval
         log.info(f"Layer 4 (Copy):   {'ON' if self._copy_enabled else 'OFF'} — {copy_int}s cycle")
+        log.info(f"Layer 5 (Odds):   {'ON' if self._odds_enabled else 'OFF'} — {self._odds_interval}s cycle")
         log.info(f"Max exposure: ${self._maker.config.max_total_exposure}")
         log.info(f"Max loss/day: ${self._maker.config.max_daily_loss}")
         log.info("=" * 60)
@@ -297,7 +309,16 @@ class UnifiedPolymarketBot:
                 self._state.errors_today += 1
             self._last_copy_scan_ts = now
 
-        # Layer 5: position management (runs every 5 min)
+        # Layer 5: odds comparison (runs every 5 min)
+        if self._odds_enabled and now - self._last_odds_scan_ts >= self._odds_interval:
+            try:
+                self._odds_cycle()
+            except Exception as e:
+                log.error(f"Odds cycle error: {e}")
+                self._state.errors_today += 1
+            self._last_odds_scan_ts = now
+
+        # Layer 6: position management (runs every 5 min)
         if not self._paper_mode and now - self._last_position_scan_ts >= self._position_scan_interval:
             try:
                 self._manage_positions()
@@ -755,7 +776,122 @@ class UnifiedPolymarketBot:
                         alert_type="copy",
                     )
 
-    # ── Position Management (Layer 5) ──
+    # ── Odds Comparison (Layer 5) ──
+
+    def _odds_cycle(self) -> None:
+        """Compare bookmaker odds with Polymarket to find mispriced sports markets."""
+        if not self._odds_engine.api_key_set:
+            log.debug("Odds engine: ODDS_API_KEY not set, skipping")
+            return
+
+        if not self._can_open_new_position("odds"):
+            return
+
+        import requests as req
+        GAMMA_API = "https://gamma-api.polymarket.com"
+
+        # Fetch Polymarket sports markets
+        poly_markets = []
+        try:
+            for offset in range(0, 600, 100):
+                resp = req.get(
+                    f"{GAMMA_API}/markets",
+                    params={"active": "true", "closed": "false", "limit": 100, "offset": offset},
+                    timeout=15,
+                )
+                if resp.status_code != 200:
+                    break
+                batch = resp.json()
+                if not batch:
+                    break
+                poly_markets.extend(batch)
+                if len(batch) < 100:
+                    break
+        except Exception as e:
+            log.error(f"Odds: failed to fetch Polymarket markets: {e}")
+            return
+
+        # Filter to sports-related
+        sports_kw = [
+            "win on 20", "vs.", "vs ", "spread", "draw",
+            "goals", "points", "o/u ", "over/under",
+        ]
+        sports_markets = [
+            m for m in poly_markets
+            if any(kw in m.get("question", "").lower() for kw in sports_kw)
+        ]
+
+        if not sports_markets:
+            log.debug("Odds: no Polymarket sports markets found")
+            return
+
+        # Fetch bookmaker odds (use cached if available)
+        all_bk_odds = self._odds_engine.fetch_all_odds()
+        if not all_bk_odds:
+            log.debug("Odds: no bookmaker odds available")
+            return
+
+        # Find edges
+        edges = self._odds_engine.find_edges(sports_markets, all_bk_odds)
+        if not edges:
+            log.info(f"Odds: scanned {len(sports_markets)} markets, no edges found")
+            return
+
+        log.info(f"Odds: {len(edges)} mispriced markets found!")
+        balance = self._get_effective_balance()
+
+        for edge in edges[:3]:
+            if not self._can_open_new_position("odds"):
+                break
+            if edge.confidence == "low":
+                continue
+
+            # Find matching token in our known markets
+            token_id = None
+            price = edge.polymarket_price
+            for m in self._all_markets:
+                if m.condition_id == edge.poly_condition_id:
+                    if "YES" in edge.side:
+                        token_id = m.yes_token_id
+                        price = m.yes_price
+                    else:
+                        token_id = m.no_token_id
+                        price = m.no_price
+                    break
+
+            if not token_id:
+                log.debug(f"Odds: no token found for {edge.polymarket_question[:40]}")
+                continue
+
+            # Size: Kelly-inspired but capped
+            risk_cfg = self._cfg.get("polymarket", {}).get("risk", {})
+            max_pos = risk_cfg.get("max_position_usd", 8)
+            size_usd = min(edge.edge * balance * 0.5, max_pos)
+            size_usd = max(size_usd, 2.0)
+
+            if size_usd > balance * 0.3:
+                continue
+
+            shares = size_usd / price if price > 0 else 0
+            if shares < 5:
+                continue
+            shares = round(shares, 2)
+
+            side = Side.BUY
+            result = self._place(token_id, side, price, shares)
+            if result and result.success and result.filled_size > 0:
+                self._state.trades_today += 1
+                self._daily_spend_usd += price * result.filled_size
+                self._alert(
+                    f"ODDS EDGE: {edge.side}\n"
+                    f"{edge.polymarket_question[:50]}\n"
+                    f"Poly: {edge.polymarket_price:.1%} vs Book: {edge.bookmaker_prob:.1%} "
+                    f"(edge: {edge.edge:+.1%})\n"
+                    f"Size: ${size_usd:.2f} | Source: {edge.bookmaker}",
+                    alert_type="edge",
+                )
+
+    # ── Position Management (Layer 6) ──
 
     def _discover_positions(self) -> None:
         """Discover ALL positions using multiple methods.
