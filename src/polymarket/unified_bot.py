@@ -615,13 +615,16 @@ class UnifiedPolymarketBot:
         if not markets:
             return
 
+        # Sports-only mode: filter to sports markets for snipes
+        sports_only = self._cfg.get("odds_engine", {}).get("enabled", False)
+        if sports_only:
+            sports_kw = ["win on 20", "vs.", "vs ", "o/u ", "over/under", "spread:", "draw",
+                         "goals", "total goals", "total points", "total maps", "handicap"]
+            markets = [m for m in markets if any(kw in m.question.lower() for kw in sports_kw)]
+
         opps = self._arb_engine.scan_all(markets)
         if not opps:
             return
-
-        # Complete-set arbs and snipes are math-based — allow ALL markets.
-        # High price (93%+) is itself the quality signal for snipes.
-        # (Quality filter only applies to edge/mean-reversion trades.)
 
         balance = self._get_effective_balance()
 
