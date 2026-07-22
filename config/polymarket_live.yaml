@@ -39,7 +39,7 @@ polymarket:
   report_interval_seconds: 180    # report every 3 min
 
   # ── Global position limits ──
-  max_open_positions: 15            # max 15 positions for $200 account
+  max_open_positions: 8             # max 8 positions — $167 account too small for more
   min_cash_reserve: 15.0            # always keep $15 cash — hard floor
 
   # ── Layer toggles — ALL ON ──
