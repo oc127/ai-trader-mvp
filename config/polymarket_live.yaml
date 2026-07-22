@@ -42,10 +42,10 @@ polymarket:
   max_open_positions: 8             # max 8 positions — $167 account too small for more
   min_cash_reserve: 15.0            # always keep $15 cash — hard floor
 
-  # ── Layer toggles — ALL ON ──
-  maker_enabled: true
-  edge_enabled: true
-  copy_enabled: true
+  # ── Layer toggles — sports odds arbitrage only ──
+  maker_enabled: false
+  edge_enabled: false
+  copy_enabled: false
 
   # ── Scanner ──
   scanner:
