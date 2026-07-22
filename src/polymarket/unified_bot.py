@@ -84,6 +84,7 @@ class UnifiedPolymarketBot:
         # layer 3: arbitrage
         self._arb_engine = ArbitrageEngine(cfg)
         self._last_arb_ts = 0.0
+        self._sniped_cids: set[str] = set()  # condition_ids already sniped — never buy twice
 
         # layer 4: copy trading
         self._copy_trader = CopyTrader(cfg)
@@ -618,9 +619,19 @@ class UnifiedPolymarketBot:
         # Sports-only mode: filter to sports markets for snipes
         sports_only = self._cfg.get("odds_engine", {}).get("enabled", False)
         if sports_only:
-            sports_kw = ["win on 20", "vs.", "vs ", "o/u ", "over/under", "spread:", "draw",
-                         "goals", "total goals", "total points", "total maps", "handicap"]
+            sports_kw = ["win on 20", " vs.", " vs ", "o/u ", "over/under", "spread:",
+                         "end in a draw", "total goals", "total points", "total maps",
+                         "handicap", "1st half", "2nd half", "exact score:"]
             markets = [m for m in markets if any(kw in m.question.lower() for kw in sports_kw)]
+
+        # Skip markets we already hold or already sniped
+        held_cids = {p.market.condition_id for p in self._held_positions.values() if hasattr(p, 'market')}
+        held_tokens = set(self._held_positions.keys())
+        skip_cids = held_cids | self._sniped_cids
+        markets = [m for m in markets
+                   if m.condition_id not in skip_cids
+                   and m.yes_token_id not in held_tokens
+                   and m.no_token_id not in held_tokens]
 
         opps = self._arb_engine.scan_all(markets)
         if not opps:
@@ -693,6 +704,7 @@ class UnifiedPolymarketBot:
                     f"SNIPE: {opp.snipe_side} {opp.market.question[:40]} "
                     f"@ {price:.3f} size=${usd_size:.2f} shares={shares:.2f} net=${opp.net_profit:.4f}"
                 )
+                self._sniped_cids.add(opp.market.condition_id)
                 result = self._place(token_id, Side.BUY, price, shares, opp.market)
                 if result and result.success and result.filled_size > 0:
                     self._arb_engine.record_fill(opp, result.filled_size, price)
