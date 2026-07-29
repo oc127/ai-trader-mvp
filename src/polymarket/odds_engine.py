@@ -24,6 +24,7 @@ log = get_logger(__name__)
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 
 SPORT_KEYS = [
+    # Soccer — major leagues
     "soccer_epl",
     "soccer_spain_la_liga",
     "soccer_italy_serie_a",
@@ -41,17 +42,33 @@ SPORT_KEYS = [
     "soccer_argentina_primera_division",
     "soccer_netherlands_eredivisie",
     "soccer_conmebol_copa_libertadores",
-    "americanfootball_nfl",
-    "basketball_wnba",
-    "baseball_mlb",
-    "icehockey_nhl",
+    "soccer_belgium_first_div",
+    "soccer_austria_bundesliga",
+    "soccer_switzerland_superleague",
+    "soccer_poland_ekstraklasa",
+    "soccer_greece_super_league",
+    "soccer_spl",
+    "soccer_turkey_super_league",
+    "soccer_japan_j_league",
+    "soccer_australia_aleague",
+    # Tennis — ATP + WTA (swisstony's big category)
     "tennis_atp_french_open",
     "tennis_atp_us_open",
     "tennis_atp_wimbledon",
+    "tennis_atp_aus_open",
     "tennis_wta_french_open",
     "tennis_wta_us_open",
     "tennis_wta_wimbledon",
+    "tennis_wta_aus_open",
+    # US Sports
+    "americanfootball_nfl",
+    "basketball_nba",
+    "basketball_wnba",
+    "baseball_mlb",
+    "icehockey_nhl",
+    # Combat
     "mma_mixed_martial_arts",
+    "boxing_boxing",
 ]
 
 
@@ -109,6 +126,69 @@ def _normalize(name: str) -> str:
 
 def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, _normalize(a), _normalize(b)).ratio()
+
+
+def _contains_name(haystack: str, name: str) -> float:
+    """Check if name appears as a substring in haystack, return similarity score.
+
+    Better than full-string SequenceMatcher for matching short team/player names
+    inside long Polymarket questions.
+    """
+    h = _normalize(haystack)
+    n = _normalize(name)
+    if not n:
+        return 0.0
+    if n in h:
+        return 0.95
+    words = n.split()
+    if len(words) >= 2:
+        matched = sum(1 for w in words if w in h)
+        return matched / len(words) * 0.9
+    return _similarity(n, h)
+
+
+def _extract_team_from_question(question: str) -> tuple[str, str, str]:
+    """Extract team/player names from common Polymarket question formats.
+
+    Returns (team_a, team_b, hint) where hint is "" or "draw".
+    """
+    q = question.strip().rstrip("?")
+
+    # Draw pattern first: "Will X vs Y end in a draw"
+    m = re.search(r"(?:will\s+)?(.+?)\s+(?:vs\.?|v\.?)\s+(.+?)\s+end in a draw", q, re.IGNORECASE)
+    if m:
+        a = re.sub(r"^(?:will|can)\s+", "", m.group(1).strip(), flags=re.IGNORECASE)
+        return (a, m.group(2).strip(), "draw")
+
+    # "Will [Team] win/beat/defeat [on date / against / ...]"
+    m = re.search(r"(?:will|can)\s+(.+?)\s+(?:win|beat|defeat|to win)", q, re.IGNORECASE)
+    if m:
+        team = m.group(1).strip()
+        team = re.sub(r"\s+on\s+\d{4}-\d{2}-\d{2}$", "", team)
+        team = re.sub(r"\s+on\s+\w+\s+\d+$", "", team)
+        team = re.sub(r"\s+the\s+\w+$", "", team)
+        return (team, "", "")
+
+    # "[Team] to win [Tournament]"
+    m = re.search(r"(.+?)\s+to\s+win", q, re.IGNORECASE)
+    if m:
+        return (m.group(1).strip(), "", "")
+
+    # "Who will win: [A] vs [B]" or "[A] vs. [B]"
+    m = re.search(r"(?:who will win[:\s]+)?(.+?)\s+(?:vs\.?|v\.?)\s+(.+?)(?:\s*[:\-?]|$)", q, re.IGNORECASE)
+    if m:
+        a = m.group(1).strip()
+        b = m.group(2).strip()
+        b = re.sub(r"\s+end in a draw$", "", b, flags=re.IGNORECASE)
+        a = re.sub(r"^(?:will|can)\s+", "", a, flags=re.IGNORECASE)
+        return (a, b, "")
+
+    # "[A] - [B]" (common in soccer: "Real Madrid - Barcelona")
+    m = re.search(r"^(.+?)\s+[-–—]\s+(.+?)$", q)
+    if m:
+        return (m.group(1).strip(), m.group(2).strip(), "")
+
+    return ("", "", "")
 
 
 class OddsEngine:
@@ -208,12 +288,44 @@ class OddsEngine:
             log.error(f"Failed to fetch odds for {sport_key}: {e}")
             return []
 
-    def fetch_all_odds(self) -> list[BookmakerOdds]:
-        """Fetch odds across all tracked sports."""
+    def fetch_all_odds(self, max_api_calls: int = 8) -> list[BookmakerOdds]:
+        """Fetch odds across tracked sports, rotating to conserve API quota.
+
+        With 500 requests/month and 5-min intervals, we can afford ~7 calls/cycle.
+        Prioritize sports with the most Polymarket markets.
+        """
         all_odds: list[BookmakerOdds] = []
-        for sport in SPORT_KEYS:
+        calls = 0
+
+        # Return cached odds if still fresh
+        fresh = [k for k, v in self._cache.items() if (time.time() - self._last_fetch) < self._cache_ttl]
+        for k in fresh:
+            all_odds.extend(self._cache[k])
+
+        priority = [
+            "soccer_epl", "soccer_spain_la_liga", "soccer_italy_serie_a",
+            "soccer_germany_bundesliga", "baseball_mlb", "basketball_wnba",
+            "mma_mixed_martial_arts",
+        ]
+        remaining = [k for k in SPORT_KEYS if k not in priority]
+
+        if not hasattr(self, "_scan_offset"):
+            self._scan_offset = 0
+
+        # Fetch priority sports + a rotating slice of the rest
+        batch_size = max(1, max_api_calls - len(priority))
+        rotate_slice = remaining[self._scan_offset:self._scan_offset + batch_size]
+        self._scan_offset = (self._scan_offset + batch_size) % max(1, len(remaining))
+
+        for sport in priority + rotate_slice:
+            if sport in fresh:
+                continue
+            if calls >= max_api_calls:
+                break
             odds = self.fetch_odds(sport)
             all_odds.extend(odds)
+            calls += 1
+
         return all_odds
 
     def fetch_available_sports(self) -> list[dict]:
@@ -248,17 +360,35 @@ class OddsEngine:
             best_score = 0.0
             best_outcome = ""
 
-            for bk in bookmaker_odds:
-                # Try matching home team
-                home_score = _similarity(bk.home_team, question)
-                away_score = _similarity(bk.away_team, question)
+            team_a, team_b, hint = _extract_team_from_question(question)
 
-                # Check if question contains "win" pattern: "Will X win"
-                win_match = re.search(r"will\s+(.+?)\s+win", question, re.IGNORECASE)
-                if win_match:
-                    team_in_question = win_match.group(1)
-                    home_sim = _similarity(bk.home_team, team_in_question)
-                    away_sim = _similarity(bk.away_team, team_in_question)
+            for bk in bookmaker_odds:
+                # If extraction hinted "draw", prioritize draw matching
+                if hint == "draw" and bk.draw_prob > 0 and team_a:
+                    team_sim = max(
+                        _contains_name(team_a, bk.home_team),
+                        _contains_name(team_a, bk.away_team),
+                    )
+                    if team_b:
+                        team_sim = max(team_sim,
+                            _contains_name(team_b, bk.home_team),
+                            _contains_name(team_b, bk.away_team),
+                        )
+                    if team_sim >= self._match_threshold and team_sim >= best_score:
+                        best_score = team_sim
+                        best_match = bk
+                        best_outcome = "draw"
+
+                # Strategy 1: extracted team(s) vs bookmaker teams
+                if team_a and not team_b:
+                    home_sim = max(
+                        _contains_name(team_a, bk.home_team),
+                        _similarity(bk.home_team, team_a),
+                    )
+                    away_sim = max(
+                        _contains_name(team_a, bk.away_team),
+                        _similarity(bk.away_team, team_a),
+                    )
 
                     if home_sim > away_sim and home_sim > self._match_threshold:
                         if home_sim > best_score:
@@ -271,26 +401,44 @@ class OddsEngine:
                             best_match = bk
                             best_outcome = "away"
 
-                # Check "vs" pattern: "X vs Y"
-                vs_match = re.search(r"(.+?)\s+vs\.?\s+(.+?)(?:\s*[:?]|$)", question, re.IGNORECASE)
-                if vs_match:
-                    q_home = vs_match.group(1).strip()
-                    q_away = vs_match.group(2).strip()
-                    h2h_score = (_similarity(bk.home_team, q_home) + _similarity(bk.away_team, q_away)) / 2
-                    if h2h_score > best_score and h2h_score > self._match_threshold:
-                        best_score = h2h_score
+                elif team_a and team_b:
+                    score_ab = (
+                        max(_contains_name(team_a, bk.home_team), _similarity(bk.home_team, team_a))
+                        + max(_contains_name(team_b, bk.away_team), _similarity(bk.away_team, team_b))
+                    ) / 2
+                    score_ba = (
+                        max(_contains_name(team_b, bk.home_team), _similarity(bk.home_team, team_b))
+                        + max(_contains_name(team_a, bk.away_team), _similarity(bk.away_team, team_a))
+                    ) / 2
+                    score = max(score_ab, score_ba)
+
+                    if score > best_score and score > self._match_threshold:
+                        best_score = score
                         best_match = bk
                         best_outcome = "h2h"
 
-                # Check "draw/end in a draw" pattern
+                # Strategy 2: substring check (bookmaker team name found in question)
+                home_in_q = _contains_name(question, bk.home_team)
+                away_in_q = _contains_name(question, bk.away_team)
+
+                if home_in_q > self._match_threshold and home_in_q > best_score:
+                    best_score = home_in_q
+                    best_match = bk
+                    best_outcome = "home"
+                if away_in_q > self._match_threshold and away_in_q > best_score:
+                    best_score = away_in_q
+                    best_match = bk
+                    best_outcome = "away"
+
+                # Strategy 3: draw detection (uses >= so draw wins ties)
                 draw_match = re.search(r"end in a draw|draw\??$", question, re.IGNORECASE)
                 if draw_match and bk.draw_prob > 0:
-                    combined = max(
-                        _similarity(bk.home_team, question),
-                        _similarity(bk.away_team, question),
+                    team_sim = max(
+                        _contains_name(question, bk.home_team),
+                        _contains_name(question, bk.away_team),
                     )
-                    if combined > self._match_threshold and combined > best_score:
-                        best_score = combined
+                    if team_sim > self._match_threshold and team_sim >= best_score:
+                        best_score = team_sim
                         best_match = bk
                         best_outcome = "draw"
 
@@ -308,7 +456,14 @@ class OddsEngine:
         edges: list[OddsEdge] = []
 
         for pm, bk, outcome_type in matched:
-            yes_price = float(pm.get("yes_price", pm.get("outcomePrices", [0.5, 0.5])[0]) or 0.5)
+            import json as _json
+            raw_prices = pm.get("outcomePrices", [0.5, 0.5])
+            if isinstance(raw_prices, str):
+                try:
+                    raw_prices = _json.loads(raw_prices)
+                except Exception:
+                    raw_prices = [0.5, 0.5]
+            yes_price = float(pm.get("yes_price", raw_prices[0] if raw_prices else 0.5) or 0.5)
             question = pm.get("question", "")
 
             if outcome_type == "home":

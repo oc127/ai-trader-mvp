@@ -619,9 +619,14 @@ class UnifiedPolymarketBot:
         # Sports-only mode: filter to sports markets for snipes
         sports_only = self._cfg.get("odds_engine", {}).get("enabled", False)
         if sports_only:
-            sports_kw = ["win on 20", " vs.", " vs ", "o/u ", "over/under", "spread:",
-                         "end in a draw", "total goals", "total points", "total maps",
-                         "handicap", "1st half", "2nd half", "exact score:"]
+            sports_kw = [
+                "win on 20", " vs.", " vs ", "o/u ", "over/under", "spread:",
+                "end in a draw", "total goals", "total points", "total maps",
+                "handicap", "1st half", "2nd half", "exact score:",
+                " atp ", " wta ", " ufc ", " nba ", " nfl ", " nhl ", " mlb ",
+                "premier league", "la liga", "serie a", "bundesliga",
+                "champions league", "ligue 1",
+            ]
             markets = [m for m in markets if any(kw in m.question.lower() for kw in sports_kw)]
 
         # Skip markets we already hold or already sniped
@@ -826,14 +831,44 @@ class UnifiedPolymarketBot:
             log.error(f"Odds: failed to fetch Polymarket markets: {e}")
             return
 
+        # Also fetch by sports tags for better coverage
+        try:
+            for tag in ["sports", "soccer", "football", "tennis", "basketball",
+                         "baseball", "hockey", "mma", "boxing", "cricket"]:
+                resp = req.get(
+                    f"{GAMMA_API}/markets",
+                    params={"active": "true", "closed": "false", "limit": 100, "tag": tag},
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    batch = resp.json()
+                    if batch:
+                        poly_markets.extend(batch)
+        except Exception:
+            pass
+
+        # Deduplicate by conditionId
+        seen_cids: set[str] = set()
+        unique_markets = []
+        for m in poly_markets:
+            cid = m.get("conditionId", m.get("condition_id", ""))
+            if cid and cid not in seen_cids:
+                seen_cids.add(cid)
+                unique_markets.append(m)
+        poly_markets = unique_markets
+
         # Filter to sports-related
         sports_kw = [
-            "win on 20", "vs.", "vs ", "spread", "draw",
-            "goals", "points", "o/u ", "over/under",
+            "win on 20", " vs.", " vs ", "spread", "end in a draw",
+            "goals", "points", "sets", "o/u ", "over/under",
+            "atp", "wta", "ufc", "nba", "nfl", "nhl", "mlb", "mls", "wnba",
+            "premier league", "la liga", "serie a", "bundesliga",
+            "champions league", "ligue 1", "copa", "liga mx", "eredivisie",
         ]
         sports_markets = [
             m for m in poly_markets
-            if any(kw in m.get("question", "").lower() for kw in sports_kw)
+            if (any(kw in m.get("question", "").lower() for kw in sports_kw)
+                or "sport" in str(m.get("tags", "")).lower())
         ]
 
         if not sports_markets:

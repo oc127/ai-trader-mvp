@@ -43,13 +43,15 @@ SPORT_GROUPS = {
     ],
     "tennis": [
         "tennis_atp_french_open", "tennis_atp_us_open", "tennis_atp_wimbledon",
+        "tennis_atp_aus_open",
         "tennis_wta_french_open", "tennis_wta_us_open", "tennis_wta_wimbledon",
+        "tennis_wta_aus_open",
     ],
     "us_sports": [
         "americanfootball_nfl", "basketball_nba", "basketball_wnba",
         "baseball_mlb", "icehockey_nhl",
     ],
-    "mma": ["mma_mixed_martial_arts"],
+    "combat": ["mma_mixed_martial_arts", "boxing_boxing"],
 }
 
 
@@ -203,6 +205,20 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, normalize(a), normalize(b)).ratio()
 
 
+def contains_name(haystack: str, name: str) -> float:
+    h = normalize(haystack)
+    n = normalize(name)
+    if not n:
+        return 0.0
+    if n in h:
+        return 0.95
+    words = n.split()
+    if len(words) >= 2:
+        matched = sum(1 for w in words if w in h)
+        return matched / len(words) * 0.9
+    return similarity(n, h)
+
+
 def find_edges(poly_markets: list[dict], odds_events: list[dict], min_edge: float) -> list[dict]:
     """Find mispriced markets."""
     import re
@@ -260,14 +276,14 @@ def find_edges(poly_markets: list[dict], odds_events: list[dict], min_edge: floa
         best_outcome = ""
 
         for bk in bk_events:
-            # "Will X win" pattern
-            win_match = re.search(r"will\s+(.+?)\s+win", question, re.IGNORECASE)
+            # "Will X win/beat/defeat" pattern
+            win_match = re.search(r"(?:will|can)\s+(.+?)\s+(?:win|beat|defeat)", question, re.IGNORECASE)
             if win_match:
                 team = win_match.group(1).strip()
-                # Remove date suffix like "on 2026-07-21?"
                 team = re.sub(r"\s+on\s+\d{4}-\d{2}-\d{2}\??$", "", team).strip()
-                home_sim = similarity(bk["home"], team)
-                away_sim = similarity(bk["away"], team)
+                team = re.sub(r"\s+the\s+\w+$", "", team).strip()
+                home_sim = max(contains_name(team, bk["home"]), similarity(bk["home"], team))
+                away_sim = max(contains_name(team, bk["away"]), similarity(bk["away"], team))
 
                 if home_sim > away_sim and home_sim > 0.50 and home_sim > best_score:
                     best = bk
@@ -278,20 +294,42 @@ def find_edges(poly_markets: list[dict], odds_events: list[dict], min_edge: floa
                     best_score = away_sim
                     best_outcome = "away_win"
 
-            # "X vs Y" pattern
-            vs_match = re.search(r"(.+?)\s+vs\.?\s+(.+?)(?:\s*[:?]|$)", question, re.IGNORECASE)
+            # "X vs Y" or "X v Y" or "X - Y" pattern
+            vs_match = re.search(r"(.+?)\s+(?:vs\.?|v\.?)\s+(.+?)(?:\s*[:\-?]|$)", question, re.IGNORECASE)
+            if not vs_match:
+                vs_match = re.search(r"^(.+?)\s+[-–—]\s+(.+?)$", question.rstrip("?"))
             if vs_match:
                 q_home = vs_match.group(1).strip()
                 q_away = vs_match.group(2).strip()
-                score = (similarity(bk["home"], q_home) + similarity(bk["away"], q_away)) / 2
+                score_ab = (
+                    max(contains_name(q_home, bk["home"]), similarity(bk["home"], q_home))
+                    + max(contains_name(q_away, bk["away"]), similarity(bk["away"], q_away))
+                ) / 2
+                score_ba = (
+                    max(contains_name(q_away, bk["home"]), similarity(bk["home"], q_away))
+                    + max(contains_name(q_home, bk["away"]), similarity(bk["away"], q_home))
+                ) / 2
+                score = max(score_ab, score_ba)
                 if score > 0.50 and score > best_score:
                     best = bk
                     best_score = score
                     best_outcome = "h2h_home"
 
-            # "end in a draw" pattern
-            if re.search(r"draw|end in a draw", question, re.IGNORECASE) and bk["draw_prob"] > 0:
-                team_sim = max(similarity(bk["home"], question), similarity(bk["away"], question))
+            # Substring check: bookmaker team name found in question
+            home_in_q = contains_name(question, bk["home"])
+            away_in_q = contains_name(question, bk["away"])
+            if home_in_q > 0.50 and home_in_q > best_score:
+                best = bk
+                best_score = home_in_q
+                best_outcome = "home_win"
+            if away_in_q > 0.50 and away_in_q > best_score:
+                best = bk
+                best_score = away_in_q
+                best_outcome = "away_win"
+
+            # "end in a draw" pattern (not plain "draw")
+            if re.search(r"end in a draw|draw\??$", question, re.IGNORECASE) and bk["draw_prob"] > 0:
+                team_sim = max(contains_name(question, bk["home"]), contains_name(question, bk["away"]))
                 if team_sim > 0.40 and team_sim > best_score:
                     best = bk
                     best_score = team_sim
