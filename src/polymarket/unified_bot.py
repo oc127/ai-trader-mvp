@@ -967,7 +967,32 @@ class UnifiedPolymarketBot:
             log.info(f"Token scan found {extra} additional positions")
 
         total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
-        log.info(f"Discovery complete: {len(self._held_positions)} positions, est. value ${total_value:.2f}")
+        cash = self._client.get_balance()
+        log.info(
+            f"Discovery complete: {len(self._held_positions)} positions, "
+            f"est. value ${total_value:.2f}, cash ${cash:.2f}"
+        )
+
+        if total_value > cash * 20 and len(self._held_positions) > 20:
+            log.warning(
+                f"Position value ${total_value:.2f} >> cash ${cash:.2f} — "
+                f"likely phantom positions. Pruning unverified entries."
+            )
+            pruned = 0
+            for tid in list(self._held_positions.keys()):
+                actual = self._client.get_token_balance(tid)
+                if actual < 0.5:
+                    del self._held_positions[tid]
+                    pruned += 1
+                else:
+                    self._held_positions[tid].shares = actual
+            if pruned:
+                total_value = sum(p.shares * p.current_price for p in self._held_positions.values())
+                log.info(
+                    f"Pruned {pruned} phantoms. "
+                    f"Actual: {len(self._held_positions)} positions, ${total_value:.2f}"
+                )
+
         self._positions_discovered = True
 
     def _discover_from_data_api(self, positions_data: list[dict]) -> None:
@@ -975,6 +1000,9 @@ class UnifiedPolymarketBot:
         known_markets: dict[str, Market] = {}
         for m in (self._all_markets or []):
             known_markets[m.condition_id] = m
+
+        skipped_resolved = 0
+        skipped_zero = 0
 
         for pos_data in positions_data:
             cid = str(pos_data.get("conditionId", pos_data.get("condition_id", "")))
@@ -1004,6 +1032,10 @@ class UnifiedPolymarketBot:
                 log.debug(f"Skipping position {cid[:16]}... — market not found")
                 continue
 
+            if not market.active:
+                skipped_resolved += 1
+                continue
+
             if outcome_str == "YES" or asset_id == market.yes_token_id:
                 outcome = Outcome.YES
                 if not asset_id or asset_id == cid:
@@ -1015,7 +1047,8 @@ class UnifiedPolymarketBot:
 
             shares = self._client.get_token_balance(asset_id)
             if shares < 0.5:
-                shares = raw_size
+                skipped_zero += 1
+                continue
 
             self._held_positions[asset_id] = _HeldPosition(
                 market=market, outcome=outcome, token_id=asset_id,
@@ -1025,6 +1058,9 @@ class UnifiedPolymarketBot:
                 f"  Found: {outcome.value} {market.question[:50]} | "
                 f"{shares:.1f} shares @ {price:.3f} (${shares * price:.2f})"
             )
+
+        if skipped_resolved or skipped_zero:
+            log.info(f"  Skipped: {skipped_resolved} resolved markets, {skipped_zero} zero-balance tokens")
 
     def _discover_via_token_scan(self) -> None:
         """Scan Gamma top markets for non-zero token balances.

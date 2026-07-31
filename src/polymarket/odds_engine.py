@@ -204,6 +204,9 @@ class OddsEngine:
         self._last_fetch = 0.0
         self._cache: dict[str, list[BookmakerOdds]] = {}
         self._cache_ttl = odds_cfg.get("cache_ttl", 300)
+        self._dynamic_sports: list[str] = []
+        self._last_sport_discovery = 0.0
+        self._sport_discovery_ttl = 3600.0
 
     @property
     def api_key_set(self) -> bool:
@@ -288,12 +291,48 @@ class OddsEngine:
             log.error(f"Failed to fetch odds for {sport_key}: {e}")
             return []
 
+    def discover_active_sports(self) -> list[str]:
+        """Auto-discover active sports from The Odds API.
+
+        Runs at most once per hour. Catches tournaments not in SPORT_KEYS
+        (e.g., tennis_atp_washington_open, new boxing events).
+        """
+        if time.time() - self._last_sport_discovery < self._sport_discovery_ttl:
+            return self._dynamic_sports
+
+        active = self.fetch_available_sports()
+        if not active:
+            return self._dynamic_sports
+
+        new_keys = []
+        static_set = set(SPORT_KEYS)
+        for sport in active:
+            key = sport.get("key", "")
+            if not key or key in static_set:
+                continue
+            if any(prefix in key for prefix in ("tennis_", "soccer_", "basketball_",
+                                                  "boxing_", "mma_", "baseball_",
+                                                  "americanfootball_", "icehockey_")):
+                new_keys.append(key)
+
+        if new_keys != self._dynamic_sports:
+            added = set(new_keys) - set(self._dynamic_sports)
+            if added:
+                log.info(f"Discovered {len(added)} new active sports: {', '.join(sorted(added))}")
+            self._dynamic_sports = new_keys
+
+        self._last_sport_discovery = time.time()
+        return self._dynamic_sports
+
     def fetch_all_odds(self, max_api_calls: int = 8) -> list[BookmakerOdds]:
         """Fetch odds across tracked sports, rotating to conserve API quota.
 
         With 500 requests/month and 5-min intervals, we can afford ~7 calls/cycle.
         Prioritize sports with the most Polymarket markets.
+        Uses dynamic sport discovery to catch active tournaments not in SPORT_KEYS.
         """
+        self.discover_active_sports()
+
         all_odds: list[BookmakerOdds] = []
         calls = 0
 
@@ -302,12 +341,19 @@ class OddsEngine:
         for k in fresh:
             all_odds.extend(self._cache[k])
 
+        # Merge dynamic sports (auto-discovered) with static list
+        sport_keys = list(SPORT_KEYS)
+        if self._dynamic_sports:
+            for sk in self._dynamic_sports:
+                if sk not in sport_keys:
+                    sport_keys.append(sk)
+
         priority = [
             "soccer_epl", "soccer_spain_la_liga", "soccer_italy_serie_a",
             "soccer_germany_bundesliga", "baseball_mlb", "basketball_wnba",
             "mma_mixed_martial_arts",
         ]
-        remaining = [k for k in SPORT_KEYS if k not in priority]
+        remaining = [k for k in sport_keys if k not in priority]
 
         if not hasattr(self, "_scan_offset"):
             self._scan_offset = 0
