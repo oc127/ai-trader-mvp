@@ -194,6 +194,7 @@ class UnifiedPolymarketBot:
             while not self._state.halted:
                 self._fast_cycle()
                 time.sleep(self._fast_interval)
+            log.warning(f"Main loop exited: halted={self._state.halted}, reason={self._state.halt_reason}")
         except KeyboardInterrupt:
             log.info("Stopped by user (Ctrl+C)")
         except Exception:
@@ -1173,6 +1174,11 @@ class UnifiedPolymarketBot:
                     )
                     del self._held_positions[token_id]
                     sells_this_cycle += 1
+                elif result and not result.success and result.error:
+                    err = result.error.lower()
+                    if "invalid token" in err or "does not exist" in err:
+                        log.warning(f"Removing untradeable position: {pos.market.question[:40]}")
+                        del self._held_positions[token_id]
             elif action == "hold":
                 log.debug(f"Hold: {pos.outcome.value} {pos.market.question[:40]} | {reason}")
 
