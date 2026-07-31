@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Trading Agent</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --user-bg: #1c2333;
+  --agent-bg: #161b22;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header h1 span { font-size: 14px; color: var(--text-dim); font-weight: 400; }
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
+.status-dot.connected { background: var(--green); }
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.tool-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tool-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* Chat area */
+.chat-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.message {
+  max-width: 85%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.message.user {
+  align-self: flex-end;
+  background: var(--user-bg);
+  border: 1px solid var(--border);
+  border-bottom-right-radius: 4px;
+}
+.message.agent {
+  align-self: flex-start;
+  background: var(--agent-bg);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+  max-width: 90%;
+}
+.message.agent h1, .message.agent h2, .message.agent h3 {
+  margin: 12px 0 6px 0;
+  font-size: 15px;
+  color: var(--accent);
+}
+.message.agent h1:first-child, .message.agent h2:first-child, .message.agent h3:first-child {
+  margin-top: 0;
+}
+.message.system {
+  align-self: center;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 4px 12px;
+  border: none;
+}
+.message.error {
+  align-self: center;
+  color: var(--red);
+  font-size: 12px;
+}
+.typing {
+  align-self: flex-start;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 8px 16px;
+}
+.typing::after {
+  content: '';
+  animation: dots 1.5s infinite;
+}
+@keyframes dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+/* Table styling inside messages */
+.message table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+  width: 100%;
+}
+.message th, .message td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+}
+.message th { background: var(--bg); color: var(--accent); }
+.message code {
+  background: var(--bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.message pre {
+  background: var(--bg);
+  padding: 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.message pre code { padding: 0; background: none; }
+.message strong { color: var(--accent); }
+.message a { color: var(--accent); }
+
+/* Input area */
+.input-area {
+  padding: 12px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.input-row {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+}
+.input-row textarea {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  min-height: 42px;
+  max-height: 120px;
+}
+.input-row textarea:focus { border-color: var(--accent); }
+.input-row textarea::placeholder { color: var(--text-dim); }
+.send-btn {
+  padding: 0 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.send-btn:hover { opacity: 0.9; }
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.input-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  text-align: right;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .header { padding: 10px 12px; }
+  .toolbar { padding: 6px 12px; }
+  .chat-area { padding: 12px; }
+  .input-area { padding: 10px 12px; }
+  .message { max-width: 95%; }
+  .message.agent { max-width: 95%; }
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>AI Trading Agent <span>Serenity + RICH</span></h1>
+  <div class="status">
+    <a href="/dashboard" style="color:var(--accent);text-decoration:none;font-size:12px;margin-right:12px;">Dashboard</a>
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Connecting...</span>
+  </div>
+</div>
+
+<div class="toolbar">
+  <button class="tool-btn" onclick="quickCmd('帮我分析一下当前账户状态')">Account</button>
+  <button class="tool-btn" onclick="quickCmd('扫描当前适合做资金费率套利的币对')">Scan Pairs</button>
+  <button class="tool-btn" onclick="quickCmd('用 full_analysis 分析 SIVE，论点：CPO激光chokepoint，方向 long')">Full Analysis</button>
+  <button class="tool-btn" onclick="quickCmd('用 thesis_scorecard 评估 AAOI，论点：美国本土光模块垂直整合')">Scorecard</button>
+  <button class="tool-btn" onclick="quickCmd('用 cross_market_scan 扫描 CPO激光源 主题')">Global Scan</button>
+  <button class="tool-btn" onclick="quickCmd('用 fib_analysis 分析 NVDA，趋势 up')">Fib Analysis</button>
+  <button class="tool-btn" onclick="quickCmd('用 drill_down 分析 BESI.AS')">Drill Down</button>
+  <button class="tool-btn" style="border-color:var(--yellow);color:var(--yellow)" onclick="quickCmd('用 value_checklist 评估腾讯')">Checklist</button>
+  <button class="tool-btn" style="border-color:var(--yellow);color:var(--yellow)" onclick="quickCmd('用 four_masters 分析拼多多')">4 Masters</button>
+</div>
+
+<div class="chat-area" id="chatArea">
+  <div class="message system">Welcome! Type a message or click a quick action above.</div>
+</div>
+
+<div class="input-area">
+  <div class="input-row">
+    <textarea id="msgInput" rows="1" placeholder="Ask anything... e.g. 分析MSTR的卡脖子评分"
+      onkeydown="handleKey(event)" oninput="autoGrow(this)"></textarea>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+  </div>
+  <div class="input-hint">Enter to send, Shift+Enter for new line</div>
+</div>
+
+<script>
+const chatArea = document.getElementById('chatArea');
+const msgInput = document.getElementById('msgInput');
+const sendBtn = document.getElementById('sendBtn');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+
+let ws = null;
+let isWaiting = false;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/default`);
+
+  ws.onopen = () => {
+    statusDot.classList.add('connected');
+    statusText.textContent = 'Connected';
+  };
+
+  ws.onmessage = (event) => {
+    removeTyping();
+    isWaiting = false;
+    sendBtn.disabled = false;
+    const data = JSON.parse(event.data);
+    if (data.type === 'reply') {
+      addMessage(data.content, 'agent');
+    }
+  };
+
+  ws.onclose = () => {
+    statusDot.classList.remove('connected');
+    statusText.textContent = 'Disconnected';
+    removeTyping();
+    isWaiting = false;
+    sendBtn.disabled = false;
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => {
+    addMessage('Connection error. Retrying...', 'error');
+  };
+}
+
+function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text || isWaiting) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    addMessage('Not connected. Please wait...', 'error');
+    return;
+  }
+
+  addMessage(text, 'user');
+  ws.send(text);
+  msgInput.value = '';
+  msgInput.style.height = 'auto';
+  isWaiting = true;
+  sendBtn.disabled = true;
+  showTyping();
+}
+
+function quickCmd(cmd) {
+  msgInput.value = cmd;
+  sendMessage();
+}
+
+function addMessage(text, type) {
+  const div = document.createElement('div');
+  div.className = `message ${type}`;
+  if (type === 'agent') {
+    div.innerHTML = renderMarkdown(text);
+  } else {
+    div.textContent = text;
+  }
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function showTyping() {
+  const div = document.createElement('div');
+  div.className = 'typing';
+  div.id = 'typingIndicator';
+  div.textContent = 'Thinking';
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function removeTyping() {
+  const el = document.getElementById('typingIndicator');
+  if (el) el.remove();
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function renderMarkdown(text) {
+  let html = escapeHtml(text);
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Tables
+  html = html.replace(/^(\|.+\|)\n(\|[-| :]+\|)\n((?:\|.+\|\n?)+)/gm, (_, header, sep, body) => {
+    const ths = header.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+    const rows = body.trim().split('\n').map(row => {
+      const tds = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    return `<table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>`;
+  });
+  // Lists
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  return html;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+connect();
+msgInput.focus();
+</script>
+</body>
+</html>

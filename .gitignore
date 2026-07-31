@@ -1,31 +1,40 @@
-.DS_Store
-.env
-.env.*
-
 # Python
-.venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
 .pytest_cache/
 
-# Local data / outputs
+# Environment
+.env
+.env.local
+!.env.example
+
+# Data (local only)
+data/funding_rates/*.csv
+data/funding_rates/*.db
 data/*.db
 data/*.db-shm
 data/*.db-wal
 data/*.sqlite
-data/*.sqlite3
 data/*.jsonl
-reports/
+
+# Logs
 logs/
+*.log
+reports/
 
-# Cursor / local IDE config
-.cursor/mcp.json
+# IDE
+.vscode/
+.idea/
+.cursor/
 
-# Local npm config (user-specific)
-npmrc.mcp
+# OS
+.DS_Store
+Thumbs.db
 
-# Allow committing Cursor Rules (recommended)
-!.cursor/rules/
-!.cursor/rules/**
-
-
+# uv
+uv.lock

@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Trading Agent — Dashboard</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface2: #1c2333;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --orange: #db6d28;
+  --purple: #bc8cff;
+  --cyan: #39d2c0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Top bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.topbar-logo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+.topbar-logo span { color: var(--text-dim); font-weight: 400; }
+.topbar-tags {
+  display: flex;
+  gap: 8px;
+}
+.tag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.tag.serenity { background: rgba(188,140,255,0.15); color: var(--purple); }
+.tag.rich { background: rgba(57,210,192,0.15); color: var(--cyan); }
+.tag.unified { background: rgba(88,166,255,0.15); color: var(--accent); }
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.topbar-clock { font-variant-numeric: tabular-nums; }
+.topbar-nav {
+  display: flex;
+  gap: 4px;
+}
+.topbar-nav a {
+  padding: 4px 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.topbar-nav a:hover, .topbar-nav a.active {
+  color: var(--accent);
+  background: rgba(88,166,255,0.1);
+}
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: rgba(63,185,80,0.1);
+  color: var(--green);
+  border: 1px solid rgba(63,185,80,0.2);
+}
+.status-pill .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s infinite;
+}
+.status-pill.offline { background: rgba(248,81,73,0.1); color: var(--red); border-color: rgba(248,81,73,0.2); }
+.status-pill.offline .dot { background: var(--red); animation: none; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Grid layout */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+  padding: 16px 24px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+}
+.card-header .indicator {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+.card-body { padding: 14px; }
+
+/* Stat cards row */
+.stat-row { grid-column: span 12; display: flex; gap: 12px; }
+.stat-card {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.stat-card.accent::before { background: var(--accent); }
+.stat-card.green::before { background: var(--green); }
+.stat-card.purple::before { background: var(--purple); }
+.stat-card.cyan::before { background: var(--cyan); }
+.stat-card.yellow::before { background: var(--yellow); }
+.stat-card.orange::before { background: var(--orange); }
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stat-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* Pipeline */
+.pipeline-card { grid-column: span 12; }
+.pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 8px 0;
+  overflow-x: auto;
+}
+.pipe-step {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+.pipe-box {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  min-width: 90px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  transition: all 0.3s;
+}
+.pipe-box.active {
+  border-color: var(--accent);
+  background: rgba(88,166,255,0.08);
+  color: var(--accent);
+  box-shadow: 0 0 12px rgba(88,166,255,0.15);
+}
+.pipe-box.serenity { border-color: var(--purple); color: var(--purple); }
+.pipe-box.rich { border-color: var(--cyan); color: var(--cyan); }
+.pipe-box.decision { border-color: var(--green); color: var(--green); }
+.pipe-box small { display: block; font-size: 9px; font-weight: 400; color: var(--text-dim); margin-top: 2px; }
+.pipe-arrow {
+  color: var(--border);
+  font-size: 16px;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+
+/* Skills grid */
+.skills-card { grid-column: span 5; }
+.skill-group { margin-bottom: 14px; }
+.skill-group:last-child { margin-bottom: 0; }
+.skill-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.skill-group-title.serenity { color: var(--purple); }
+.skill-group-title.rich { color: var(--cyan); }
+.skill-group-title.unified { color: var(--accent); }
+.skill-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  cursor: default;
+}
+.skill-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.skill-dot.serenity { background: var(--purple); }
+.skill-dot.rich { background: var(--cyan); }
+.skill-dot.unified { background: var(--accent); }
+.skill-name { color: var(--text); font-weight: 500; }
+.skill-desc { color: var(--text-dim); font-size: 11px; }
+
+/* Decision tree */
+.tree-card { grid-column: span 7; }
+.decision-matrix {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.dm-cell {
+  padding: 10px 12px;
+  background: var(--bg);
+  text-align: center;
+}
+.dm-cell.header {
+  background: var(--surface2);
+  font-weight: 600;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dm-cell.row-header {
+  background: var(--surface2);
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+}
+.dm-cell.green-zone { color: var(--green); font-weight: 600; }
+.dm-cell.yellow-zone { color: var(--yellow); font-weight: 600; }
+.dm-cell.red-zone { color: var(--red); font-weight: 600; }
+
+/* Tools */
+.tools-card { grid-column: span 5; }
+.tool-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tool-chip {
+  padding: 5px 10px;
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.tool-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Architecture */
+.arch-card { grid-column: span 7; }
+.arch-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 8px 0;
+}
+.arch-block {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--bg);
+  position: relative;
+}
+.arch-block h4 {
+  font-size: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.arch-block h4.purple { color: var(--purple); }
+.arch-block h4.cyan { color: var(--cyan); }
+.arch-block h4.blue { color: var(--accent); }
+.arch-block h4.green { color: var(--green); }
+.arch-block ul {
+  list-style: none;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.8;
+}
+.arch-block ul li::before {
+  content: '>';
+  margin-right: 6px;
+  color: var(--border);
+}
+.arch-connector {
+  display: flex;
+  align-items: center;
+  color: var(--border);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* Config card */
+.config-card { grid-column: span 12; }
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.config-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.config-key {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.config-val {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+/* Footer */
+.footer {
+  padding: 12px 24px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .grid { padding: 12px; gap: 10px; }
+  .stat-row { flex-wrap: wrap; }
+  .stat-card { min-width: calc(50% - 6px); }
+  .skills-card, .tree-card, .tools-card, .arch-card { grid-column: span 12; }
+  .arch-flow { flex-direction: column; }
+  .arch-connector { justify-content: center; transform: rotate(90deg); }
+  .config-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .stat-card { min-width: 100%; }
+  .config-grid { grid-template-columns: 1fr; }
+  .topbar { flex-direction: column; gap: 8px; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-logo">SERENITY <span>x</span> RICH <span>QUANT</span></div>
+    <div class="topbar-tags">
+      <span class="tag" style="background:rgba(210,153,34,0.15);color:var(--yellow)">BERKSHIRE</span>
+      <span class="tag serenity">SERENITY</span>
+      <span class="tag rich">RICH</span>
+      <span class="tag unified">OODA</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="topbar-nav">
+      <a href="/dashboard" class="active">Dashboard</a>
+      <a href="/">Chat</a>
+    </div>
+    <div class="status-pill offline" id="statusPill">
+      <div class="dot"></div>
+      <span id="statusLabel">OFFLINE</span>
+    </div>
+    <div class="topbar-clock" id="clock">--:--:--</div>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- Stat cards -->
+  <div class="stat-row">
+    <div class="stat-card accent">
+      <div class="stat-label">LLM Provider</div>
+      <div class="stat-value" id="providerName">--</div>
+      <div class="stat-sub" id="modelName">loading...</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">Total Tools</div>
+      <div class="stat-value" id="totalTools">35</div>
+      <div class="stat-sub">8 trading + 21 research + 6 unified</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-label">Serenity Skills</div>
+      <div class="stat-value">8</div>
+      <div class="stat-sub">Chokepoint fundamentals</div>
+    </div>
+    <div class="stat-card cyan">
+      <div class="stat-label">RICH Skills</div>
+      <div class="stat-value">6</div>
+      <div class="stat-sub">Fibonacci timing</div>
+    </div>
+    <div class="stat-card" style="--top-color:var(--yellow)">
+      <div class="stat-label">Berkshire Skills</div>
+      <div class="stat-value" style="color:var(--yellow)">4</div>
+      <div class="stat-sub">Four Masters value investing</div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="stat-label">Trades Logged</div>
+      <div class="stat-value" id="tradeCount">--</div>
+      <div class="stat-sub" id="lessonCount">loading...</div>
+    </div>
+    <div class="stat-card orange">
+      <div class="stat-label">Mode</div>
+      <div class="stat-value" id="tradingMode">PAPER</div>
+      <div class="stat-sub" id="envLabel">testnet</div>
+    </div>
+  </div>
+
+  <!-- Pipeline -->
+  <div class="card pipeline-card">
+    <div class="card-header">
+      Execution Pipeline — Serenity (what) → RICH (when) → Decision (do)
+      <div class="indicator" style="background:var(--green)"></div>
+    </div>
+    <div class="card-body">
+      <div class="pipeline">
+        <div class="pipe-step">
+          <div class="pipe-box serenity">Scan<small>Supply Chain</small></div>
+          <div class="pipe-arrow">→</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-box serenity">Chokepoint<small>Find Bottleneck</small></div>
+          <div class="pipe-arrow">→</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-box serenity">Scorecard<small>6-Dim Rating</small></div>
+          <div class="pipe-arrow">→</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-box" style="border-color:var(--text-dim);color:var(--text-dim)">||<small>Handoff</small></div>
+          <div class="pipe-arrow">→</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-box rich">Drill Down<small>Multi-TF</small></div>
+          <div class="pipe-arrow">→</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-box rich">Fib Zone<small>Golden 0.618</small></div>
+          <div class="pipe-arrow">→</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-box rich">R : R<small>Iron Rule 2:1</small></div>
+          <div class="pipe-arrow">→</div>
+        </div>
+        <div class="pipe-step">
+          <div class="pipe-box decision">Decision<small>4-Quadrant</small></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Skills list -->
+  <div class="card skills-card">
+    <div class="card-header">
+      Skill Registry
+      <div class="indicator" style="background:var(--purple)"></div>
+    </div>
+    <div class="card-body">
+      <div class="skill-group">
+        <div class="skill-group-title serenity">SERENITY — Chokepoint Fundamentals</div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">map_supply_chain</span><span class="skill-desc">— Architecture migration mapping</span></div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">find_chokepoints</span><span class="skill-desc">— Bottleneck identification</span></div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">design_in_detective</span><span class="skill-desc">— Pre-production signals</span></div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">capital_catalyst_stack</span><span class="skill-desc">— Capital catalyst overlay</span></div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">geopolitical_impact</span><span class="skill-desc">— Geopolitical supply chain map</span></div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">challenge_thesis</span><span class="skill-desc">— Devil's advocate</span></div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">cross_market_scan</span><span class="skill-desc">— Cross-geography arbitrage</span></div>
+        <div class="skill-item"><div class="skill-dot serenity"></div><span class="skill-name">thesis_scorecard</span><span class="skill-desc">— 6-dimension scoring</span></div>
+      </div>
+      <div class="skill-group">
+        <div class="skill-group-title rich">RICH — Fibonacci Timing</div>
+        <div class="skill-item"><div class="skill-dot rich"></div><span class="skill-name">fib_analysis</span><span class="skill-desc">— Fibonacci levels</span></div>
+        <div class="skill-item"><div class="skill-dot rich"></div><span class="skill-name">drill_down</span><span class="skill-desc">— Multi-timeframe resonance</span></div>
+        <div class="skill-item"><div class="skill-dot rich"></div><span class="skill-name">risk_reward_calc</span><span class="skill-desc">— R:R iron rule check</span></div>
+        <div class="skill-item"><div class="skill-dot rich"></div><span class="skill-name">leaps_setup</span><span class="skill-desc">— LEAPS options pyramid</span></div>
+        <div class="skill-item"><div class="skill-dot rich"></div><span class="skill-name">theta_harvest</span><span class="skill-desc">— Theta decay harvest</span></div>
+        <div class="skill-item"><div class="skill-dot rich"></div><span class="skill-name">rich_scorecard</span><span class="skill-desc">— 4-dimension scoring</span></div>
+      </div>
+      <div class="skill-group">
+        <div class="skill-group-title unified">UNIFIED — Decision Pipeline</div>
+        <div class="skill-item"><div class="skill-dot unified"></div><span class="skill-name">full_analysis</span><span class="skill-desc">— Serenity + RICH end-to-end</span></div>
+        <div class="skill-item"><div class="skill-dot unified"></div><span class="skill-name">entry_plan</span><span class="skill-desc">— Executable trade plan</span></div>
+        <div class="skill-item"><div class="skill-dot unified"></div><span class="skill-name">position_check</span><span class="skill-desc">— Dual-lens position audit</span></div>
+      </div>
+      <div class="skill-group">
+        <div class="skill-group-title" style="color:var(--yellow)">BERKSHIRE — Four Masters Value Investing</div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">value_checklist</span><span class="skill-desc">— Buffett 6-gate checklist</span></div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">four_masters</span><span class="skill-desc">— 4-perspective analysis</span></div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">quality_screen</span><span class="skill-desc">— 7-metric quality filter</span></div>
+        <div class="skill-item"><div class="skill-dot" style="background:var(--yellow)"></div><span class="skill-name">devils_advocate</span><span class="skill-desc">— Munger inversion analysis</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Decision matrix -->
+  <div class="card tree-card">
+    <div class="card-header">
+      Strategy Decision Tree — 4-Quadrant Matrix
+      <div class="indicator" style="background:var(--green)"></div>
+    </div>
+    <div class="card-body">
+      <div class="decision-matrix">
+        <div class="dm-cell header"></div>
+        <div class="dm-cell header">RICH: Good Timing</div>
+        <div class="dm-cell header">RICH: Wait</div>
+        <div class="dm-cell row-header" style="color:var(--purple)">Serenity: Worth Buying</div>
+        <div class="dm-cell green-zone">FULL POSITION<br><span style="font-size:10px;color:var(--text-dim)">Both systems aligned</span></div>
+        <div class="dm-cell yellow-zone">WATCHLIST<br><span style="font-size:10px;color:var(--text-dim)">Good stock, wait for entry</span></div>
+        <div class="dm-cell row-header" style="color:var(--purple)">Serenity: Not Worth It</div>
+        <div class="dm-cell yellow-zone">TACTICAL TRADE<br><span style="font-size:10px;color:var(--text-dim)">Technical only, small size</span></div>
+        <div class="dm-cell red-zone">NO TRADE<br><span style="font-size:10px;color:var(--text-dim)">Skip entirely</span></div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <div class="card-header" style="padding:0 0 8px 0;border:none;">OODA Decision Loop</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:120px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;">
+            <div style="font-size:18px;margin-bottom:4px;">O</div>
+            <div style="font-size:11px;color:var(--accent);font-weight:600;">OBSERVE</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">Market state<br>Account state</div>
+          </div>
+          <div style="flex:1;min-width:120px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;">
+            <div style="font-size:18px;margin-bottom:4px;">O</div>
+            <div style="font-size:11px;color:var(--yellow);font-weight:600;">ORIENT</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">Risk assessment<br>Opportunity ID</div>
+          </div>
+          <div style="flex:1;min-width:120px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;">
+            <div style="font-size:18px;margin-bottom:4px;">D</div>
+            <div style="font-size:11px;color:var(--orange);font-weight:600;">DECIDE</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">4-Quadrant check<br>Size & timing</div>
+          </div>
+          <div style="flex:1;min-width:120px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;">
+            <div style="font-size:18px;margin-bottom:4px;">A</div>
+            <div style="font-size:11px;color:var(--green);font-weight:600;">ACT</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">Execute trade<br>Log & learn</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trading tools -->
+  <div class="card tools-card">
+    <div class="card-header">
+      Trading Tools — Hyperliquid
+      <div class="indicator" style="background:var(--cyan)"></div>
+    </div>
+    <div class="card-body">
+      <div class="tool-list">
+        <div class="tool-chip" onclick="goChat('帮我分析一下当前账户状态')">get_account</div>
+        <div class="tool-chip" onclick="goChat('查看 BTC ETH SOL 价格')">get_price</div>
+        <div class="tool-chip" onclick="goChat('查看 BTC 订单簿')">get_orderbook</div>
+        <div class="tool-chip" onclick="goChat('扫描当前适合做市的币对')">scan_pairs</div>
+        <div class="tool-chip" onclick="goChat('')">place_order</div>
+        <div class="tool-chip" onclick="goChat('')">market_order</div>
+        <div class="tool-chip" onclick="goChat('')">cancel_orders</div>
+        <div class="tool-chip" onclick="goChat('')">close_position</div>
+        <div class="tool-chip" onclick="goChat('查看当前挂单')">get_open_orders</div>
+        <div class="tool-chip" onclick="goChat('')">set_leverage</div>
+        <div class="tool-chip" onclick="goChat('查看 BTC 资金费率')">get_funding_rates</div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <div class="card-header" style="padding:0 0 8px 0;border:none;">Quick Actions</div>
+        <div class="tool-list">
+          <div class="tool-chip" style="border-color:var(--purple);color:var(--purple)" onclick="goChat('用 thesis_scorecard 评估 AAOI，论点：美国本土光模块垂直整合')">Scorecard</div>
+          <div class="tool-chip" style="border-color:var(--purple);color:var(--purple)" onclick="goChat('用 cross_market_scan 扫描 CPO激光源 主题')">Global Scan</div>
+          <div class="tool-chip" style="border-color:var(--cyan);color:var(--cyan)" onclick="goChat('用 fib_analysis 分析 NVDA，趋势 up')">Fib Analysis</div>
+          <div class="tool-chip" style="border-color:var(--cyan);color:var(--cyan)" onclick="goChat('用 drill_down 分析 BESI.AS')">Drill Down</div>
+          <div class="tool-chip" style="border-color:var(--accent);color:var(--accent)" onclick="goChat('用 full_analysis 分析 SIVE，论点：CPO激光chokepoint，方向 long')">Full Analysis</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 value_checklist 评估腾讯')">Checklist</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 four_masters 分析拼多多')">Four Masters</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 quality_screen 筛选 腾讯,美团,拼多多,阿里')">Quality Screen</div>
+          <div class="tool-chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="goChat('用 devils_advocate 挑战 NVDA，多头论点：AI算力需求持续爆发')">Devil Advocate</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Architecture -->
+  <div class="card arch-card">
+    <div class="card-header">
+      System Architecture
+      <div class="indicator" style="background:var(--accent)"></div>
+    </div>
+    <div class="card-body">
+      <div class="arch-flow">
+        <div class="arch-block">
+          <h4 style="color:var(--yellow)">Berkshire</h4>
+          <ul>
+            <li>Value checklist (6 gates)</li>
+            <li>Four masters analysis</li>
+            <li>Quality screen (7 metrics)</li>
+            <li>Devil's advocate</li>
+          </ul>
+        </div>
+        <div class="arch-connector">+</div>
+        <div class="arch-block">
+          <h4 class="purple">Serenity</h4>
+          <ul>
+            <li>Supply chain mapping</li>
+            <li>Chokepoint identification</li>
+            <li>Design-in detection</li>
+            <li>6-dim scorecard</li>
+          </ul>
+        </div>
+        <div class="arch-connector">→</div>
+        <div class="arch-block">
+          <h4 class="cyan">RICH</h4>
+          <ul>
+            <li>Fibonacci analysis</li>
+            <li>Multi-TF drill down</li>
+            <li>R:R calculation</li>
+            <li>4-dim scorecard</li>
+          </ul>
+        </div>
+        <div class="arch-connector">→</div>
+        <div class="arch-block">
+          <h4 class="blue">Unified</h4>
+          <ul>
+            <li>full_analysis</li>
+            <li>entry_plan</li>
+            <li>position_check</li>
+          </ul>
+        </div>
+        <div class="arch-connector">→</div>
+        <div class="arch-block">
+          <h4 class="green">Execution</h4>
+          <ul>
+            <li>Hyperliquid API</li>
+            <li>Paper / Live</li>
+            <li>Trade journal</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Config -->
+  <div class="card config-card">
+    <div class="card-header">
+      Runtime Configuration
+      <div class="indicator" style="background:var(--yellow)"></div>
+    </div>
+    <div class="card-body">
+      <div class="config-grid">
+        <div class="config-item">
+          <div class="config-key">Provider</div>
+          <div class="config-val" id="cfgProvider">--</div>
+        </div>
+        <div class="config-item">
+          <div class="config-key">Model</div>
+          <div class="config-val" id="cfgModel">--</div>
+        </div>
+        <div class="config-item">
+          <div class="config-key">Environment</div>
+          <div class="config-val" id="cfgEnv">--</div>
+        </div>
+        <div class="config-item">
+          <div class="config-key">Sessions</div>
+          <div class="config-val" id="cfgSessions">--</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  SERENITY x RICH QUANT — AI Trading Agent MVP — Chokepoint Fundamentals + Fibonacci Timing
+</div>
+
+<script>
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getUTCHours()).padStart(2, '0');
+  const m = String(now.getUTCMinutes()).padStart(2, '0');
+  const s = String(now.getUTCSeconds()).padStart(2, '0');
+  document.getElementById('clock').textContent = `${h}:${m}:${s} UTC`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+async function fetchStatus() {
+  try {
+    const res = await fetch('/health');
+    const data = await res.json();
+    const pill = document.getElementById('statusPill');
+    const label = document.getElementById('statusLabel');
+    pill.classList.remove('offline');
+    label.textContent = 'ONLINE';
+    document.getElementById('cfgSessions').textContent = data.sessions || 0;
+  } catch {
+    const pill = document.getElementById('statusPill');
+    const label = document.getElementById('statusLabel');
+    pill.classList.add('offline');
+    label.textContent = 'OFFLINE';
+  }
+}
+
+async function fetchConfig() {
+  try {
+    const res = await fetch('/api/system');
+    const data = await res.json();
+    document.getElementById('providerName').textContent = (data.provider || '--').toUpperCase();
+    document.getElementById('modelName').textContent = data.model || '--';
+    document.getElementById('cfgProvider').textContent = data.provider || '--';
+    document.getElementById('cfgModel').textContent = data.model || '--';
+    document.getElementById('cfgEnv').textContent = data.environment || '--';
+    document.getElementById('tradingMode').textContent = data.paper ? 'PAPER' : 'LIVE';
+    document.getElementById('envLabel').textContent = data.environment || '--';
+    document.getElementById('tradeCount').textContent = data.trades || '0';
+    document.getElementById('lessonCount').textContent = (data.lessons || 0) + ' lessons learned';
+  } catch {
+    document.getElementById('providerName').textContent = '--';
+  }
+}
+
+function goChat(cmd) {
+  if (cmd) {
+    window.location.href = '/?cmd=' + encodeURIComponent(cmd);
+  } else {
+    window.location.href = '/';
+  }
+}
+
+fetchStatus();
+fetchConfig();
+setInterval(fetchStatus, 10000);
+</script>
+</body>
+</html>

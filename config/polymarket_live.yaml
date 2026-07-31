@@ -1,0 +1,140 @@
+# Polymarket LIVE Trading Configuration
+# $200 account — all 4 layers active, conservative sizing
+
+polymarket:
+  paper_mode: false
+
+  initial_balance: 200.0
+
+  funder_address: "0x8cf9DD5089Eb8458bFbD0A541D5D64Fe994e2dE3"
+
+  chain_id: 137
+  signature_type: 3
+
+  rate_limit_delay: 0.15
+
+  # ── Market Maker (Layer 1) — small but active ──
+  hf_market_maker:
+    min_half_spread: 0.01
+    max_half_spread: 0.03
+    skew_factor: 0.01
+    quote_size_usd: 5.0           # $5 per side
+    max_position_per_market: 20.0
+    max_total_exposure: 50.0      # $50 total maker exposure
+    min_market_liquidity: 5000
+    min_market_volume_24h: 5000
+    min_book_spread: 0.0
+    price_band_low: 0.10
+    price_band_high: 0.90
+    max_markets: 5                # fewer markets, focus on best
+    max_inventory_age_seconds: 600
+    flatten_at_pct: 0.60
+    max_daily_loss: 15.0
+    max_consecutive_losses: 10
+    pause_after_loss_seconds: 60
+
+  # ── Cycle timing ──
+  cycle_interval_seconds: 3
+  scan_interval_seconds: 60
+  report_interval_seconds: 180    # report every 3 min
+
+  # ── Global position limits ──
+  max_open_positions: 8             # max 8 positions — $167 account too small for more
+  min_cash_reserve: 15.0            # always keep $15 cash — hard floor
+
+  # ── Layer toggles — sports odds arbitrage only ──
+  maker_enabled: false
+  edge_enabled: false
+  copy_enabled: false
+
+  # ── Scanner ──
+  scanner:
+    min_edge: 0.05                    # scanner min edge (was 0.03)
+    min_volume: 5000
+    min_liquidity: 5000
+    max_price: 0.95
+    min_price: 0.05
+    market_limit: 200
+
+  # ── Strategy (edge layer) ──
+  strategy:
+    min_edge: 0.08                  # 8% minimum edge (was 5% — too many false signals)
+    reversion_size: 0.08            # 8% reversion target (was 6%)
+    vol_liq_threshold: 1.5          # stricter thin-market filter (was 2.0)
+    extreme_low: 0.15               # only trade below 15% (was 20%)
+    extreme_high: 0.85              # only trade above 85% (was 80%)
+
+  # ── Risk management ──
+  risk:
+    max_position_usd: 8            # $8 max single position
+    max_total_exposure_usd: 25    # $25 max daily spend (for ~$146 account)
+    max_single_market_pct: 0.15   # 15% max in one market
+    max_daily_trades: 10          # max 10 trades/day — stop overtrading
+    max_daily_loss_usd: 5         # $5 daily stop (3.5% of account)
+    min_kelly: 0.01
+    max_kelly: 0.08
+    min_edge: 0.05                  # risk layer min edge (was 0.03)
+    min_confidence: "low"
+    max_errors_before_halt: 5
+    max_monthly_loss_usd: 25      # $25 monthly cap
+    max_drawdown_pct: 0.15        # 15% max drawdown
+    max_total_loss_pct: 0.25      # 25% lifetime halt
+    loss_shrink_pct: 0.25
+    win_grow_pct: 0.15
+    max_streak_adjustment: 0.50
+
+  # ── Arbitrage + snipe ──
+  arbitrage:
+    min_net_profit: 0.005
+    min_roi_pct: 0.3
+    max_arb_size_usd: 10.0
+    min_liquidity: 5000
+    min_volume: 2000
+    snipe_min_price: 0.93             # higher threshold (was 0.90) — only snipe near-certain
+    snipe_max_price: 0.995
+
+  # ── Copy Trading ──
+  copy_trading:
+    min_pnl: 500.0
+    min_win_rate: 0.60
+    min_profit_factor: 1.5
+    min_trades: 30
+    max_traders_to_follow: 8
+    copy_size_pct: 0.02
+    max_copy_size_usd: 8.0
+    min_copy_size_usd: 2.0
+    scan_interval: 60.0
+    trade_delay: 5.0
+    cooldown_per_trader: 300.0
+    copy_min_price: 0.93              # only copy snipe trades (93%+), skip directional bets
+    manual_follow:
+      - "0x204f72f35326db932158cba6adff0b9a1da95e14"  # swisstony — $21.8M PnL, 100+ positions, sports sniper
+
+smart_bot:
+  cycle_interval_seconds: 15
+  scan_interval_seconds: 120
+  max_trades_per_cycle: 1             # only 1 edge trade per cycle (was 2)
+  position_timeout_seconds: 3600      # hold edge positions longer (was 1800)
+  stop_loss_multiplier: 1.5
+
+ai_edge:
+  enabled: false
+  min_edge: 0.05
+  min_confidence: "high"
+  max_markets_per_cycle: 5
+  analysis_cache_seconds: 900
+
+# ── Odds Comparison Engine (Layer 5) ──
+odds_engine:
+  enabled: true
+  min_edge: 0.05                    # 5% minimum edge vs bookmakers
+  scan_interval: 300                # check every 5 min
+  bookmakers:
+    - pinnacle                      # sharpest odds in the world
+    - bet365
+  match_threshold: 0.55             # fuzzy match confidence for event matching
+  cache_ttl: 300                    # cache odds for 5 min
+
+logging:
+  level: INFO
+  format: text

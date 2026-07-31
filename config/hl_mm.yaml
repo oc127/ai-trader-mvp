@@ -1,0 +1,35 @@
+hl_mm:
+  # --- Target pairs ---
+  # Start with less competitive altcoins with wider spreads
+  # Run `python3 scripts/scan_hl_pairs.py` to find best candidates
+  coins: ["PURR", "HFUN"]
+
+  # --- Quoting ---
+  spread_bps: 15                  # 15 bps total spread (wider = safer for small capital)
+  num_tiers: 3                    # 3 tiers per side
+  tier_spacing_bps: 5             # 5 bps between tiers
+  tier_size_multiplier: 1.5       # 1.5x size per tier
+  base_order_usd: 10              # $10 base order (tier 0)
+  tick_interval_sec: 5            # refresh quotes every 5s
+
+  # --- Inventory ---
+  max_inventory_usd: 200          # max $200 exposure per coin
+  max_total_exposure_usd: 500     # max $500 total across all coins
+  skew_intensity: 1.0             # how aggressively to skew on inventory
+
+  # --- Volatility ---
+  volatility_pause_pct: 0.02      # 2% move → widen spread
+  volatility_widen_multiplier: 2.5
+  volatility_cooldown_sec: 60     # 1 min cooldown
+
+risk:
+  max_daily_loss_usd: 20          # stop trading if daily loss > $20
+  halt_on_error_count: 5          # halt after 5 consecutive errors
+
+monitor:
+  telegram_enabled: true
+  summary_interval_sec: 1800      # summary every 30 min
+
+logging:
+  level: INFO
+  format: json

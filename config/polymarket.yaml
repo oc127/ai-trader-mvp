@@ -1,0 +1,149 @@
+# Polymarket Bot Configuration
+# Copy to config/polymarket_live.yaml and adjust for live trading
+
+polymarket:
+  paper_mode: true
+  paper_balance: 10000.0
+
+  # Cycle timing
+  cycle_interval_seconds: 30     # seconds between trade cycles
+  scan_interval_seconds: 300     # seconds between full market scans
+  max_trades_per_cycle: 2
+
+  # API (set in .env, not here)
+  # api_key: ...
+  # api_secret: ...
+  # api_passphrase: ...
+  # private_key: ...
+  chain_id: 137  # Polygon mainnet
+
+  rate_limit_delay: 0.2  # seconds between API calls
+
+  # Active strategies
+  strategies:
+    - mean_reversion
+    # - edge           # requires model_probs
+    # - market_maker   # requires more capital
+
+  # Scanner settings
+  scanner:
+    min_edge: 0.05          # 5% minimum edge to flag
+    min_volume: 10000       # $10K minimum market volume
+    min_liquidity: 5000     # $5K minimum liquidity
+    max_price: 0.90         # skip near-certain outcomes
+    min_price: 0.10         # skip near-impossible outcomes
+    market_limit: 200
+
+  # Strategy settings
+  strategy:
+    min_edge: 0.05
+    reversion_size: 0.08    # mean reversion adjustment
+    vol_liq_threshold: 2.0  # volume/liquidity ratio for thin markets
+
+  # Market maker settings (if strategy includes market_maker)
+  market_maker:
+    half_spread: 0.02       # 2% half-spread
+    min_liquidity: 10000
+    price_band_low: 0.25
+    price_band_high: 0.75
+
+  # HFT Market Maker (bot.py / market_maker.py)
+  hf_market_maker:
+    # spread & pricing
+    min_half_spread: 0.02       # 2 cents minimum half-spread
+    max_half_spread: 0.05       # widen up to 5 cents under stress
+    skew_factor: 0.01           # price shift per $10 inventory imbalance
+
+    # sizing
+    quote_size_usd: 20.0        # $20 per side per quote
+    max_position_per_market: 100.0  # $100 max per market
+    max_total_exposure: 300.0   # $300 total across all markets
+
+    # market selection
+    min_market_liquidity: 20000   # $20K liquidity minimum
+    min_market_volume_24h: 5000   # $5K 24h volume minimum
+    min_book_spread: 0.03         # only trade if book spread > 3 cents
+    price_band_low: 0.15          # don't trade below 15c
+    price_band_high: 0.85         # don't trade above 85c
+    max_markets: 5                # max simultaneous markets
+
+    # inventory management
+    max_inventory_age_seconds: 300  # auto-flatten after 5 minutes
+    flatten_at_pct: 0.80            # flatten when inventory hits 80% of max
+
+    # risk
+    max_daily_loss: 50.0            # stop trading if down $50
+    max_consecutive_losses: 5       # pause after 5 consecutive losing trades
+    pause_after_loss_seconds: 120   # 2 min cooldown after consecutive losses
+
+  # Cycle timing (HFT mode)
+  cycle_interval_seconds: 5        # 5-second cycles for high-frequency
+  scan_interval_seconds: 60        # rescan markets every minute
+  report_interval_seconds: 300     # status report every 5 minutes
+
+  # Risk management (4-layer circuit breakers + dynamic sizing)
+  risk:
+    max_position_usd: 500       # max per single position
+    max_total_exposure_usd: 2000  # total exposure cap
+    max_single_market_pct: 0.20  # 20% max in one market
+    max_daily_trades: 50
+    max_daily_loss_usd: 500
+    min_kelly: 0.02
+    max_kelly: 0.10              # cap even if Kelly says more
+    min_edge: 0.05
+    min_confidence: "low"
+    max_errors_before_halt: 10
+    # multi-layer circuit breakers
+    max_monthly_loss_usd: 1500   # L2: monthly loss cap
+    max_drawdown_pct: 0.25       # L3: 25% max drawdown from equity peak
+    max_total_loss_pct: 0.40     # L4: 40% lifetime loss halt
+    # dynamic sizing (streak-based)
+    loss_shrink_pct: 0.20        # shrink size 20% per consecutive loss
+    win_grow_pct: 0.10           # grow size 10% per consecutive win
+    max_streak_adjustment: 0.50  # floor: size can shrink to 50% of base
+
+  # Complete-set arbitrage + resolution sniping
+  arbitrage:
+    min_net_profit: 0.005        # $0.005 minimum net profit per arb
+    min_roi_pct: 0.3             # 0.3% minimum ROI
+    max_arb_size_usd: 50.0       # max per arb trade
+    min_liquidity: 5000
+    min_volume: 1000
+    snipe_min_price: 0.95        # minimum price to snipe (near-certain)
+    snipe_max_price: 0.995       # don't buy at $1.00
+    scan_limit: 200
+
+  # Smart Money copy trading
+  copy_trading:
+    min_pnl: 500.0
+    min_win_rate: 0.60
+    min_profit_factor: 1.5
+    min_trades: 20
+    min_consistency: 0.70
+    max_traders_to_follow: 10
+    copy_size_pct: 0.10          # copy 10% of their size
+    max_copy_size_usd: 25.0
+    min_copy_size_usd: 2.0
+    scan_interval: 120.0         # check leaderboard every 2 min
+    trade_delay: 5.0             # wait 5s before copying
+    cooldown_per_trader: 300.0   # 5 min cooldown per trader
+
+# Smart bot settings (green/yellow-light strategies)
+smart_bot:
+  cycle_interval_seconds: 30        # seconds between trade cycles
+  scan_interval_seconds: 300        # seconds between full market scans
+  max_trades_per_cycle: 2
+  position_timeout_seconds: 3600    # 1 hour — auto-close stale positions
+  stop_loss_multiplier: 2.0         # stop loss at 2x expected edge
+
+# AI edge analysis (requires --ai flag or enabled: true)
+ai_edge:
+  enabled: false                    # disabled by default; --ai flag overrides
+  min_edge: 0.05                    # 5% minimum AI-detected edge
+  min_confidence: "medium"          # minimum confidence level (low/medium/high)
+  max_markets_per_cycle: 10         # cap AI analysis per cycle
+  analysis_cache_seconds: 600       # cache AI results for 10 minutes
+
+logging:
+  level: INFO
+  format: text

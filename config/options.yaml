@@ -1,0 +1,63 @@
+# Options Premium Seller Configuration (TradingWarz Theta Harvest)
+# Deribit BTC/ETH options — sell far OTM, collect rent
+
+options:
+  testnet: true   # START ON TESTNET — switch to false for real money
+
+  # Deribit API (set in .env, not here)
+  # client_id: ...
+  # client_secret: ...
+
+  rate_limit_delay: 0.25
+
+  # ── Scanner: what to sell ──
+  scanner:
+    currencies: ["BTC", "ETH"]
+
+    # Delta range (absolute): 0.05-0.20 = far OTM
+    # TradingWarz: "sell at levels the market almost NEVER touches"
+    min_delta: 0.05       # skip too-far-OTM garbage (no premium)
+    max_delta: 0.20       # 10-20 delta = sweet spot
+
+    # Expiry: 7-45 DTE (theta acceleration zone)
+    min_dte: 7            # don't sell weeklies expiring tomorrow
+    max_dte: 45           # 30-45 DTE = peak theta/gamma ratio
+
+    # Premium minimum
+    min_premium_usd: 5.0  # don't sell for less than $5
+
+    # Liquidity
+    max_spread_pct: 0.50  # skip illiquid options
+    min_open_interest: 10
+
+    # IV filter
+    min_iv: 0.30          # only sell when IV > 30% (options are expensive)
+
+    # What to sell: "put", "call", or "both" (Strangle)
+    option_types: ["both"]
+
+  # ── Seller: sizing & risk ──
+  seller:
+    max_capital_usd: 1000.0       # your bankroll
+    max_single_trade_pct: 0.15    # 15% per trade ($150 max)
+    max_total_exposure_pct: 0.50  # 50% total ($500 max at risk)
+    max_positions: 5              # max simultaneous sold options
+
+    # Exit rules (TradingWarz style)
+    take_profit_pct: 0.50         # close when 50% premium captured
+    stop_loss_multiplier: 2.0     # close when option price doubles
+    roll_before_dte: 5.0          # roll positions with < 5 DTE left
+
+    # Timing
+    scan_interval_seconds: 900    # scan every 15 min
+    check_interval_seconds: 60    # check positions every 60s
+    report_interval_seconds: 3600 # report every hour
+
+    # Safety
+    max_daily_loss_usd: 100.0     # stop if down $100 in a day
+    max_portfolio_delta: 0.30     # keep portfolio near delta-neutral
+    max_errors: 10
+
+logging:
+  level: INFO
+  format: text

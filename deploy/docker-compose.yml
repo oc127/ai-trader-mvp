@@ -1,0 +1,71 @@
+version: "3.8"
+
+x-common: &common
+  restart: unless-stopped
+  env_file: .env
+  volumes:
+    - /etc/ssl/certs:/etc/ssl/certs:ro
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "5"
+
+services:
+  hyperliquid:
+    <<: *common
+    build:
+      context: /home/user/ai-trader-mvp
+      dockerfile: deploy/Dockerfile.hl
+    container_name: hl-trader
+    volumes:
+      - hl-data:/app/data
+      - hl-logs:/app/logs
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    command: ["uv", "run", "trader"]
+
+  deribit:
+    <<: *common
+    build:
+      context: /home/user/deribit-mm
+      dockerfile: deploy/Dockerfile.deribit
+    container_name: deribit-mm
+    volumes:
+      - deribit-data:/app/data
+      - deribit-logs:/app/logs
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    command: ["uv", "run", "deribot"]
+
+  gate:
+    <<: *common
+    build:
+      context: /home/user/gate-trader
+      dockerfile: deploy/Dockerfile.gate
+    container_name: gate-trader
+    volumes:
+      - gate-data:/app/data
+      - gate-logs:/app/logs
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    command: ["uv", "run", "gatebot"]
+
+  polymarket:
+    <<: *common
+    build:
+      context: /home/user/polymarket-bot
+      dockerfile: deploy/Dockerfile.poly
+    container_name: polymarket-bot
+    volumes:
+      - poly-data:/app/data
+      - poly-logs:/app/logs
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+    command: ["uv", "run", "polybot"]
+
+volumes:
+  hl-data:
+  hl-logs:
+  deribit-data:
+  deribit-logs:
+  gate-data:
+  gate-logs:
+  poly-data:
+  poly-logs:

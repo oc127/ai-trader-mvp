@@ -1,0 +1,43 @@
+market_maker:
+  # 选 spread 大（>100bps）、量适中（$100K-500K）的小币种
+  pairs:
+    - BNKR_USDT
+    - KCT_USDT
+
+  # 报价参数 — 针对 100+ bps spread 的小币种
+  base_spread_bps: 40          # 基础 spread 40bps（市场 spread 的 ~30%）
+  min_spread_bps: 20           # 最小 spread 20bps
+  num_tiers: 3                 # 每侧3档报价
+  tier_spacing_bps: 15         # 每档间距 15bps（小币种需要更宽）
+  tier_size_multiplier: 1.5    # 外档 size 是内档的 1.5 倍
+  base_order_usd: 20           # 最内档 $20（小资金保守）
+
+  # 库存管理
+  max_inventory_usd: 300       # 单币种最大库存 $300
+  max_total_inventory_usd: 500 # 总库存上限 $500
+  skew_intensity: 1.5          # 库存偏移强度（高一点，小币种要快速减仓）
+
+  # 波动性控制
+  volatility_threshold_pct: 0.01   # 1% 价格变动触发 spread 加宽（小币种波动大）
+  volatility_widen_factor: 2.5     # 波动时 spread x2.5
+
+  # 执行
+  refresh_interval_sec: 5      # 每 5 秒刷新报价
+  max_open_orders: 20          # 最大挂单数
+
+  # 精度（从 Gate.io 盘口观察得出）
+  price_precision:
+    BNKR_USDT: 6               # $0.000511 -> 6位
+    KCT_USDT: 6                # $0.000431 -> 6位
+  amount_precision:
+    BNKR_USDT: 0               # 整数
+    KCT_USDT: 0                # 整数
+
+risk:
+  max_daily_loss_usd: 30       # 日亏损上限 $30（小资金保守）
+  max_drawdown_pct: 0.05       # 最大回撤 5%
+  halt_on_error_count: 5       # 连续 5 次错误暂停
+
+monitor:
+  telegram_enabled: true
+  summary_interval_sec: 1800   # 每 30 分钟汇报一次
