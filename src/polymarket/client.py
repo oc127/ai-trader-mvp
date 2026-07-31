@@ -513,16 +513,17 @@ class PolymarketClient:
                 raw_allowance = float(bal.get("allowance", 0) or 0)
                 if raw_balance > 0:
                     shares = raw_balance / 1e6
-                    # Sanity: if balance equals allowance, it's likely the
-                    # approval amount, not actual holdings
-                    if raw_balance == raw_allowance and shares > 100:
-                        log.debug(f"Token {token_id[:12]}... balance==allowance ({shares:.0f}), likely approval not holdings")
+                    # Approval amounts are typically huge (2^256-1) or equal to balance
+                    if raw_balance == raw_allowance:
+                        log.debug(
+                            f"Token {token_id[:12]}... balance==allowance "
+                            f"({shares:.0f}), likely approval not holdings"
+                        )
                         return 0.0
-                    # Cap at reasonable amount for position discovery
                     if shares > 10000:
                         log.debug(f"Token {token_id[:12]}... unrealistic balance {shares:.0f}, skipping")
                         return 0.0
-                    log.info(f"Token {token_id[:12]}... holds {shares:.2f} shares (allowance={raw_allowance/1e6:.0f})")
+                    log.info(f"Token {token_id[:12]}... holds {shares:.2f} shares")
                     return shares
         except Exception as e:
             log.warning(f"Token balance query failed for {token_id[:12]}...: {e}")

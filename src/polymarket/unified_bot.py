@@ -973,7 +973,7 @@ class UnifiedPolymarketBot:
             f"est. value ${total_value:.2f}, cash ${cash:.2f}"
         )
 
-        if total_value > cash * 20 and len(self._held_positions) > 20:
+        if total_value > cash * 5 or (len(self._held_positions) > 20 and total_value > cash * 3):
             log.warning(
                 f"Position value ${total_value:.2f} >> cash ${cash:.2f} — "
                 f"likely phantom positions. Pruning unverified entries."
@@ -1110,6 +1110,21 @@ class UnifiedPolymarketBot:
             if not self._positions_discovered:
                 self._discover_positions()
             return
+
+        # Re-validate balances every 30 min to prune phantom positions
+        now_mono = time.monotonic()
+        if now_mono - getattr(self, "_last_revalidation", 0) >= 1800:
+            pruned = 0
+            for tid in list(self._held_positions.keys()):
+                actual = self._client.get_token_balance(tid)
+                if actual < 0.5:
+                    del self._held_positions[tid]
+                    pruned += 1
+                else:
+                    self._held_positions[tid].shares = actual
+            if pruned:
+                log.info(f"Revalidation: pruned {pruned} stale positions")
+            self._last_revalidation = now_mono
 
         balance = self._client.get_balance()
         total_held = sum(p.shares * p.current_price for p in self._held_positions.values())
@@ -1581,9 +1596,20 @@ class UnifiedPolymarketBot:
         else:
             bal = self._client.get_balance()
             prices = self._get_current_prices()
-            position_value = self._maker.estimate_position_value(prices)
-            held_value = sum(p.shares * p.current_price for p in self._held_positions.values())
-            position_value += held_value
+            maker_value = self._maker.estimate_position_value(prices)
+            # Avoid double-counting: held positions already include maker tokens
+            maker_tokens: set[str] = set()
+            for inv in self._maker._inventory.values():
+                if inv.yes_shares > 0:
+                    maker_tokens.add(inv.yes_token_id)
+                if inv.no_shares > 0:
+                    maker_tokens.add(inv.no_token_id)
+            held_value = sum(
+                p.shares * p.current_price
+                for tid, p in self._held_positions.items()
+                if tid not in maker_tokens
+            )
+            position_value = maker_value + held_value
             equity = bal + position_value
         total_pnl = self._maker_pnl + self._edge_pnl + self._arb_pnl + self._copy_pnl
 
